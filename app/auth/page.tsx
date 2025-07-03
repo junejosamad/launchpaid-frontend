@@ -1,57 +1,56 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Eye, EyeOff, Mail, Lock, User, Users, Building, Shield, Check, AlertCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  User,
+  Users,
+  Building,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Shield,
+  AtSign,
+  Check,
+  X,
+  AlertCircle,
+} from "lucide-react"
+// Import the useAuth hook
+import { useAuth } from "@/hooks/useAuth"
 
+type FormType = "signup" | "login"
 type Role = "creator" | "agency" | "brand"
-type FormType = "login" | "signup"
 
-// Animated background component
+// Fixed AnimatedBackground component
 function AnimatedBackground() {
   return (
-    <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      {/* Animated gradient orbs */}
-      <div className="absolute inset-0">
+    <div className="absolute inset-0 opacity-20">
+      <div className="absolute inset-0 bg-gradient-to-br from-purple-900/30 via-black to-purple-900/30"></div>
+      {Array.from({ length: 20 }).map((_, i) => (
         <div
-          className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: "4s" }}
+          key={i}
+          className="absolute rounded-full bg-purple-500/20 animate-pulse"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            width: `${Math.random() * 4 + 1}px`,
+            height: `${Math.random() * 4 + 1}px`,
+            animationDelay: `${Math.random() * 3}s`,
+            animationDuration: `${Math.random() * 3 + 2}s`,
+          }}
         />
-        <div
-          className="absolute top-3/4 right-1/4 w-80 h-80 bg-purple-400/8 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: "6s", animationDelay: "2s" }}
-        />
-        <div
-          className="absolute top-1/2 left-1/2 w-72 h-72 bg-purple-600/6 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: "8s", animationDelay: "4s" }}
-        />
-      </div>
-
-      {/* Floating particles */}
-      <div className="absolute inset-0">
-        {[...Array(20)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-purple-400/20 rounded-full animate-pulse"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 5}s`,
-              animationDuration: `${3 + Math.random() * 4}s`,
-            }}
-          />
-        ))}
-      </div>
+      ))}
     </div>
   )
 }
@@ -106,7 +105,6 @@ export default function AuthPage() {
   const [selectedRole, setSelectedRole] = useState<Role>("creator")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
 
   // Form state
@@ -120,9 +118,18 @@ export default function AuthPage() {
     acceptTerms: false,
   })
 
+  // Use the auth hook
+  const { login, register, isLoading, error, clearError } = useAuth()
+  const router = useRouter()
+
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    // Clear error when switching between forms
+    clearError()
+  }, [formType, clearError])
 
   const handleRoleChange = (value: string) => {
     setSelectedRole(value as Role)
@@ -131,18 +138,86 @@ export default function AuthPage() {
   const togglePasswordVisibility = () => setShowPassword(!showPassword)
   const toggleConfirmPasswordVisibility = () => setShowConfirmPassword(!showConfirmPassword)
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false)
-      console.log("Form submitted", formData)
-    }, 2000)
-  }
-
   const updateFormData = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  // Fixed handleSubmit function that actually calls the API
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    clearError()
+
+    // Validation
+    if (!formData.email || !formData.password) {
+      alert("Please fill in all required fields")
+      return
+    }
+
+    if (formType === "signup") {
+      if (!formData.fullName) {
+        alert("Please enter your full name")
+        return
+      }
+      
+      if (formData.password !== formData.confirmPassword) {
+        alert("Passwords do not match")
+        return
+      }
+
+      if (!formData.acceptTerms) {
+        alert("Please accept the terms of service")
+        return
+      }
+
+      // Parse full name into first and last name
+      const nameParts = formData.fullName.trim().split(" ")
+      const firstName = nameParts[0] || ""
+      const lastName = nameParts.slice(1).join(" ") || ""
+
+      // Prepare registration data
+      const registerData = {
+        email: formData.email,
+        password: formData.password,
+        firstName: firstName,
+        lastName: lastName,
+        username: formData.tiktokUsername || formData.email.split("@")[0], // Use email prefix if no username
+        role: selectedRole,
+      }
+
+      console.log("Attempting registration with data:", registerData)
+
+      try {
+        const result = await register(registerData)
+        if (result.success) {
+          console.log("Registration successful!")
+          // Router will redirect automatically based on role
+        } else {
+          console.error("Registration failed:", result.error)
+        }
+      } catch (error) {
+        console.error("Registration error:", error)
+      }
+    } else {
+      // Login
+      const loginData = {
+        email: formData.email,
+        password: formData.password,
+      }
+
+      console.log("Attempting login with data:", loginData)
+
+      try {
+        const result = await login(loginData)
+        if (result.success) {
+          console.log("Login successful!")
+          // Router will redirect automatically based on role
+        } else {
+          console.error("Login failed:", result.error)
+        }
+      } catch (error) {
+        console.error("Login error:", error)
+      }
+    }
   }
 
   const getRoleContent = () => {
@@ -205,39 +280,47 @@ export default function AuthPage() {
               </CardHeader>
 
               <CardContent className="space-y-6">
-                {/* Social Login Section */}
+                {/* Error Display */}
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
 
-                {/* Role Selection */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium">I am a...</Label>
-                  <RadioGroup
-                    defaultValue="creator"
-                    value={selectedRole}
-                    onValueChange={handleRoleChange}
-                    className="grid grid-cols-3 gap-3"
-                  >
-                    {[
-                      { value: "creator", label: "Creator", icon: <User className="h-4 w-4" /> },
-                      { value: "agency", label: "Agency", icon: <Users className="h-4 w-4" /> },
-                      { value: "brand", label: "Brand", icon: <Building className="h-4 w-4" /> },
-                    ].map((role) => (
-                      <Label
-                        key={role.value}
-                        htmlFor={`role-${role.value}-${formType}`}
-                        className={`flex flex-col items-center justify-center p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:scale-[1.02]
-                                  ${
-                                    selectedRole === role.value
-                                      ? "bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-500/25"
-                                      : "bg-gray-800/50 border-gray-700 hover:bg-gray-700/50 hover:border-gray-600"
-                                  }`}
-                      >
-                        <RadioGroupItem value={role.value} id={`role-${role.value}-${formType}`} className="sr-only" />
-                        {role.icon}
-                        <span className="text-xs mt-1">{role.label}</span>
-                      </Label>
-                    ))}
-                  </RadioGroup>
-                </div>
+                {/* Role Selection (only for signup) */}
+                {formType === "signup" && (
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">I am a...</Label>
+                    <RadioGroup
+                      defaultValue="creator"
+                      value={selectedRole}
+                      onValueChange={handleRoleChange}
+                      className="grid grid-cols-3 gap-3"
+                    >
+                      {[
+                        { value: "creator", label: "Creator", icon: <User className="h-4 w-4" /> },
+                        { value: "agency", label: "Agency", icon: <Users className="h-4 w-4" /> },
+                        { value: "brand", label: "Brand", icon: <Building className="h-4 w-4" /> },
+                      ].map((role) => (
+                        <Label
+                          key={role.value}
+                          htmlFor={`role-${role.value}-${formType}`}
+                          className={`flex flex-col items-center justify-center p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:scale-[1.02]
+                                    ${
+                                      selectedRole === role.value
+                                        ? "bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-500/25"
+                                        : "bg-gray-800/50 border-gray-700 hover:bg-gray-700/50 hover:border-gray-600"
+                                    }`}
+                        >
+                          <RadioGroupItem value={role.value} id={`role-${role.value}-${formType}`} className="sr-only" />
+                          {role.icon}
+                          <span className="text-xs mt-1">{role.label}</span>
+                        </Label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                )}
 
                 {/* Form Fields */}
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -256,34 +339,33 @@ export default function AuthPage() {
                             value={formData.fullName}
                             onChange={(e) => updateFormData("fullName", e.target.value)}
                             className="pl-10 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
+                            required
                           />
                         </div>
                       </div>
 
-                      {selectedRole === "creator" && (
-                        <div className="space-y-2">
-                          <Label htmlFor="tiktok-username" className="text-sm font-medium">
-                            TikTok Username
-                          </Label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">@</span>
-                            <Input
-                              id="tiktok-username"
-                              placeholder="yourtiktok"
-                              value={formData.tiktokUsername}
-                              onChange={(e) => updateFormData("tiktokUsername", e.target.value)}
-                              className="pl-8 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
-                            />
-                          </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="tiktok-username" className="text-sm font-medium">
+                          TikTok Username <span className="text-gray-400">(optional)</span>
+                        </Label>
+                        <div className="relative">
+                          <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          <Input
+                            id="tiktok-username"
+                            placeholder="yourusername"
+                            value={formData.tiktokUsername}
+                            onChange={(e) => updateFormData("tiktokUsername", e.target.value)}
+                            className="pl-10 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
+                          />
                         </div>
-                      )}
+                      </div>
                     </>
                   )}
 
-                  {/* Email Field */}
+                  {/* Email */}
                   <div className="space-y-2">
                     <Label htmlFor="email" className="text-sm font-medium">
-                      Email
+                      Email Address
                     </Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -294,11 +376,12 @@ export default function AuthPage() {
                         value={formData.email}
                         onChange={(e) => updateFormData("email", e.target.value)}
                         className="pl-10 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
+                        required
                       />
                     </div>
                   </div>
 
-                  {/* Password Field */}
+                  {/* Password */}
                   <div className="space-y-2">
                     <Label htmlFor="password" className="text-sm font-medium">
                       Password
@@ -312,6 +395,7 @@ export default function AuthPage() {
                         value={formData.password}
                         onChange={(e) => updateFormData("password", e.target.value)}
                         className="pl-10 pr-10 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
+                        required
                       />
                       <Button
                         type="button"
@@ -341,6 +425,7 @@ export default function AuthPage() {
                           value={formData.confirmPassword}
                           onChange={(e) => updateFormData("confirmPassword", e.target.value)}
                           className="pl-10 pr-10 bg-gray-800/50 border-gray-700 focus:border-purple-500 focus:ring-purple-500/20 transition-all duration-200"
+                          required
                         />
                         <Button
                           type="button"
@@ -354,9 +439,9 @@ export default function AuthPage() {
                         {formData.confirmPassword && (
                           <div className="absolute right-10 top-1/2 -translate-y-1/2">
                             {formData.password === formData.confirmPassword ? (
-                              <Check className="h-4 w-4 text-green-400" />
+                              <Check className="h-4 w-4 text-green-500" />
                             ) : (
-                              <AlertCircle className="h-4 w-4 text-red-400" />
+                              <X className="h-4 w-4 text-red-500" />
                             )}
                           </div>
                         )}
@@ -367,18 +452,17 @@ export default function AuthPage() {
                   {/* Remember Me / Terms */}
                   <div className="space-y-3">
                     {formType === "login" ? (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="remember-me"
-                            checked={formData.rememberMe}
-                            onCheckedChange={(checked) => updateFormData("rememberMe", checked as boolean)}
-                            className="border-gray-600 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
-                          />
-                          <Label htmlFor="remember-me" className="text-sm text-gray-300">
-                            Remember me
-                          </Label>
-                        </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="remember-me"
+                          checked={formData.rememberMe}
+                          onCheckedChange={(checked) => updateFormData("rememberMe", checked as boolean)}
+                          className="border-gray-600 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                        />
+                        <Label htmlFor="remember-me" className="text-sm text-gray-300">
+                          Remember me
+                        </Label>
+                        <div className="flex-1" />
                         <Link href="#" className="text-sm text-purple-400 hover:underline">
                           Forgot Password?
                         </Link>
@@ -436,24 +520,24 @@ export default function AuthPage() {
                   {formType === "signup" ? (
                     <>
                       Already have an account?{" "}
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto text-purple-400 hover:text-purple-300"
+                      <button
+                        type="button"
                         onClick={() => setFormType("login")}
+                        className="text-purple-400 hover:underline"
                       >
-                        Sign In
-                      </Button>
+                        Sign in
+                      </button>
                     </>
                   ) : (
                     <>
-                      Don&apos;t have an account?{" "}
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto text-purple-400 hover:text-purple-300"
+                      Don't have an account?{" "}
+                      <button
+                        type="button"
                         onClick={() => setFormType("signup")}
+                        className="text-purple-400 hover:underline"
                       >
-                        Sign Up
-                      </Button>
+                        Sign up
+                      </button>
                     </>
                   )}
                 </p>
@@ -462,37 +546,11 @@ export default function AuthPage() {
           </Tabs>
         </div>
 
-        {/* Footer */}
-        <p className="text-xs text-gray-600 mt-8 text-center animate-fade-in" style={{ animationDelay: "0.4s" }}>
-          Powered by Novanex
-        </p>
+        {/* Role-specific messaging */}
+        <div className="text-center mt-6 text-gray-400 max-w-md">
+          <p className="text-sm">{getRoleContent()}</p>
+        </div>
       </div>
-
-      <style jsx global>{`
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        
-        @keyframes fade-in-up {
-          from { 
-            opacity: 0; 
-            transform: translateY(20px); 
-          }
-          to { 
-            opacity: 1; 
-            transform: translateY(0); 
-          }
-        }
-        
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out forwards;
-        }
-        
-        .animate-fade-in-up {
-          animation: fade-in-up 0.6s ease-out forwards;
-        }
-      `}</style>
     </div>
   )
 }
