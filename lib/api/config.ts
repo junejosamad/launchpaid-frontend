@@ -1,10 +1,10 @@
-// API Configuration with environment-based URLs
+// lib/api/config.ts - Fixed Frontend API Configuration
 export const API_CONFIG = {
   SERVICES: {
     USER: process.env.NEXT_PUBLIC_USER_SERVICE_URL || "http://localhost:8000",
     CAMPAIGN: process.env.NEXT_PUBLIC_CAMPAIGN_SERVICE_URL || "http://localhost:8002",
-    PAYMENT: process.env.NEXT_PUBLIC_PAYMENT_SERVICE_URL || "http://localhost:8003",
-    ANALYTICS: process.env.NEXT_PUBLIC_ANALYTICS_SERVICE_URL || "http://localhost:8004",
+    ANALYTICS: process.env.NEXT_PUBLIC_ANALYTICS_SERVICE_URL || "http://localhost:8003",
+    PAYMENT: process.env.NEXT_PUBLIC_PAYMENT_SERVICE_URL || "http://localhost:8004",
     INTEGRATION: process.env.NEXT_PUBLIC_INTEGRATION_SERVICE_URL || "http://localhost:8005",
   },
   TIMEOUT: Number.parseInt(process.env.NEXT_PUBLIC_API_TIMEOUT || "10000"),
@@ -24,52 +24,94 @@ export const getAuthHeaders = (token?: string) => ({
   ...(token && { Authorization: `Bearer ${token}` }),
 })
 
-// API endpoints
+// Fixed API endpoints with proper service prefixes
 export const ENDPOINTS = {
-  // Auth endpoints
+  // Auth endpoints (User Service)
   AUTH: {
-    LOGIN: "/auth/login",
-    LOGOUT: "/auth/logout",
-    REFRESH: "/auth/refresh",
-    REGISTER: "/auth/register",
-    PROFILE: "/auth/profile",
+    LOGIN: "/api/v1/auth/login",
+    LOGOUT: "/api/v1/auth/logout", 
+    REFRESH: "/api/v1/auth/refresh",
+    REGISTER: "/api/v1/auth/signup",
+    PROFILE: "/api/v1/auth/profile",
+    VERIFY_EMAIL: "/api/v1/auth/verify-email",
+    FORGOT_PASSWORD: "/api/v1/auth/forgot-password",
+    RESET_PASSWORD: "/api/v1/auth/reset-password",
   },
 
-  // User endpoints
+  // User endpoints (User Service)
   USERS: {
-    LIST: "/users",
-    PROFILE: "/users/profile",
-    UPDATE_PROFILE: "/users/profile",
-    CREATORS: "/creators",
-    AGENCIES: "/agencies",
+    LIST: "/api/v1/users",
+    PROFILE: "/api/v1/users/profile",
+    UPDATE_PROFILE: "/api/v1/users/profile",
+    DELETE_ACCOUNT: "/api/v1/users/account",
+    CREATORS: "/api/v1/users/creators",
+    AGENCIES: "/api/v1/users/agencies",
   },
 
-  // Campaign endpoints
+  // Campaign endpoints (Campaign Service)
   CAMPAIGNS: {
-    LIST: "/campaigns",
-    CREATE: "/campaigns",
-    GET: (id: string) => `/campaigns/${id}`,
-    UPDATE: (id: string) => `/campaigns/${id}`,
-    DELETE: (id: string) => `/campaigns/${id}`,
-    APPLICATIONS: (id: string) => `/campaigns/${id}/applications`,
-    APPLY: "/applications",
-    REVIEW_APPLICATION: (id: string) => `/applications/${id}/review`,
+    LIST: "/api/v1/campaigns",
+    CREATE: "/api/v1/campaigns",
+    GET: (id: string) => `/api/v1/campaigns/${id}`,
+    UPDATE: (id: string) => `/api/v1/campaigns/${id}`,
+    DELETE: (id: string) => `/api/v1/campaigns/${id}`,
+    APPLICATIONS: "/api/v1/applications",
+    APPLY: "/api/v1/applications",
+    UPDATE_APPLICATION: (id: string) => `/api/v1/applications/${id}`,
+    BULK_APPROVE: "/api/v1/applications/bulk-approve",
+    BULK_REJECT: "/api/v1/applications/bulk-reject",
   },
 
-  // Analytics endpoints
+  // Analytics endpoints (Analytics Service)
   ANALYTICS: {
-    DASHBOARD: "/analytics/dashboard",
-    CAMPAIGN: (id: string) => `/analytics/campaigns/${id}`,
-    CREATOR: (id: string) => `/analytics/creators/${id}`,
-    GMV: "/analytics/gmv",
-    REAL_TIME: "/analytics/real-time",
+    DASHBOARD: "/api/v1/analytics/dashboard",
+    CAMPAIGN: (id: string) => `/api/v1/analytics/campaigns/${id}`,
+    CREATOR: (id: string) => `/api/v1/analytics/creators/${id}`,
+    GMV: "/api/v1/analytics/gmv",
+    REAL_TIME: "/api/v1/analytics/real-time",
+    PERFORMANCE: "/api/v1/analytics/performance",
   },
 
-  // Payment endpoints
+  // Payment endpoints (Payment Service)
   PAYMENTS: {
-    OVERVIEW: "/payments/overview",
-    PAYOUTS: "/payments/payouts",
-    PROCESS: "/payments/process",
-    HISTORY: "/payments/history",
+    OVERVIEW: "/api/v1/payments/overview",
+    PAYOUTS: "/api/v1/payments/payouts",
+    PROCESS: "/api/v1/payments/process",
+    HISTORY: "/api/v1/payments/history",
+    INVOICES: "/api/v1/payments/invoices",
+    STRIPE_WEBHOOK: "/api/v1/payments/stripe/webhook",
+  },
+
+  // Integration endpoints (Integration Service)
+  INTEGRATIONS: {
+    TIKTOK: {
+      CONNECT: "/api/v1/integrations/tiktok/connect",
+      DISCONNECT: "/api/v1/integrations/tiktok/disconnect",
+      SYNC: "/api/v1/integrations/tiktok/sync",
+      SHOP_DATA: "/api/v1/integrations/tiktok/shop",
+    },
+    DISCORD: {
+      CONNECT: "/api/v1/integrations/discord/connect",
+      SEND_MESSAGE: "/api/v1/integrations/discord/message",
+      WEBHOOKS: "/api/v1/integrations/discord/webhooks",
+    },
+    SENDBLUE: {
+      SEND_SMS: "/api/v1/integrations/sendblue/sms",
+      STATUS: "/api/v1/integrations/sendblue/status",
+    },
   },
 } as const
+
+// Service-specific base URLs
+export const getServiceBaseUrl = (service: keyof typeof API_CONFIG.SERVICES): string => {
+  return API_CONFIG.SERVICES[service]
+}
+
+// Helper to build full URL for specific service
+export const buildServiceUrl = (
+  service: keyof typeof API_CONFIG.SERVICES,
+  endpoint: string
+): string => {
+  const baseUrl = getServiceBaseUrl(service)
+  return `${baseUrl}${endpoint}`
+}
