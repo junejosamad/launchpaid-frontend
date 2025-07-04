@@ -141,22 +141,95 @@ export function useAuth() {
     [router],
   )
 
-  const register = useCallback(
-    async (data: RegisterData) => {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }))
+  // const register = useCallback(
+  //   async (data: RegisterData) => {
+  //     setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
-      try {
-        const response = await userServiceClient.post<{
-          user: User
-          access_token: string
-          refresh_token: string
-        }>(ENDPOINTS.AUTH.REGISTER, data)
+  //     try {
+  //       const response = await userServiceClient.post<{
+  //         user: User
+  //         access_token: string
+  //         refresh_token: string
+  //       }>(ENDPOINTS.AUTH.REGISTER, data)
 
-        if (response.success && response.data) {
-          const { user, access_token, refresh_token } = response.data
+  //       if (response.success && response.data) {
+  //         const { user, access_token, refresh_token } = response.data
 
+  //         localStorage.setItem("auth_token", access_token)
+  //         localStorage.setItem("refresh_token", refresh_token)
+
+  //         setState({
+  //           user,
+  //           isLoading: false,
+  //           isAuthenticated: true,
+  //           error: null,
+  //         })
+
+  //         // Redirect to profile completion
+  //         router.push("/profile/setup")
+  //         return { success: true }
+  //       } else {
+  //         setState((prev) => ({
+  //           ...prev,
+  //           isLoading: false,
+  //           error: response.error || "Registration failed",
+  //         }))
+  //         return { success: false, error: response.error || "Registration failed" }
+  //       }
+  //     } catch (error: any) {
+  //       const errorMessage = error.message || "Registration failed"
+  //       setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
+  //       return { success: false, error: errorMessage }
+  //     }
+  //   },
+  //   [router],
+  // )
+
+  // hooks/useAuth.ts - Fixed registration flow
+const register = useCallback(
+  async (data: RegisterData) => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }))
+
+    try {
+      const response = await userServiceClient.post<{
+        user: User
+        access_token: string
+        refresh_token?: string
+        message: string
+        requires_verification: boolean
+      }>(ENDPOINTS.AUTH.REGISTER, data)
+
+      if (response.success && response.data) {
+        const { user, access_token, message, requires_verification } = response.data
+
+        // 🔑 KEY CHANGE: Check if email verification is required
+        if (requires_verification) {
+          // Don't store tokens or set user as authenticated
+          setState((prev) => ({
+            ...prev,
+            user: null,  // Don't set user yet
+            isLoading: false,
+            isAuthenticated: false,  // Keep as not authenticated
+            error: null,
+          }))
+
+          // Show success message and redirect to verification page
+          console.log("Email verification required:", message)
+          
+          // 🔑 Redirect to email verification page instead of profile setup
+          router.push(`/auth/verify-email?email=${encodeURIComponent(user.email)}`)
+          
+          return { 
+            success: true, 
+            message: message || "Please check your email to verify your account.",
+            requires_verification: true
+          }
+        } else {
+          // Email already verified - proceed with normal login flow
           localStorage.setItem("auth_token", access_token)
-          localStorage.setItem("refresh_token", refresh_token)
+          if (response.data.refresh_token) {
+            localStorage.setItem("refresh_token", response.data.refresh_token)
+          }
 
           setState({
             user,
@@ -165,25 +238,108 @@ export function useAuth() {
             error: null,
           })
 
-          // Redirect to profile completion
+          // Redirect to profile completion or dashboard
           router.push("/profile/setup")
           return { success: true }
-        } else {
-          setState((prev) => ({
-            ...prev,
-            isLoading: false,
-            error: response.error || "Registration failed",
-          }))
-          return { success: false, error: response.error || "Registration failed" }
         }
-      } catch (error: any) {
-        const errorMessage = error.message || "Registration failed"
-        setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
-        return { success: false, error: errorMessage }
+      } else {
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: response.error || "Registration failed",
+        }))
+        return { success: false, error: response.error || "Registration failed" }
       }
-    },
-    [router],
-  )
+    } catch (error: any) {
+      const errorMessage = error.message || "Registration failed"
+      setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
+      return { success: false, error: errorMessage }
+    }
+  },
+  [router],
+)
+
+// Add email verification function
+const verifyEmail = useCallback(
+  async (token: string) => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }))
+
+    try {
+      const response = await userServiceClient.post<{
+        user: User
+        access_token: string
+        message: string
+        success: boolean
+      }>(`/api/v1/auth/verify-email?token=${token}`)
+
+      if (response.success && response.data) {
+        const { user, access_token } = response.data
+
+        // Store tokens and authenticate user
+        localStorage.setItem("auth_token", access_token)
+
+        setState({
+          user,
+          isLoading: false,
+          isAuthenticated: true,
+          error: null,
+        })
+
+        // 🔑 Now redirect to dashboard based on role
+        const redirectPath =
+          user.role === "creator"
+            ? "/creator-dashboard"
+            : user.role === "agency"
+              ? "/agency-dashboard"
+              : user.role === "brand"
+                ? "/client-dashboard"
+                : "/dashboard"
+
+        router.push(redirectPath)
+        return { success: true }
+      } else {
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: response.error || "Email verification failed",
+        }))
+        return { success: false, error: response.error || "Email verification failed" }
+      }
+    } catch (error: any) {
+      const errorMessage = error.message || "Email verification failed"
+      setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
+      return { success: false, error: errorMessage }
+    }
+  },
+  [router],
+)
+
+// Add resend verification function
+const resendVerification = useCallback(
+  async (email: string) => {
+    try {
+      const response = await userServiceClient.get<{
+        message: string
+        success: boolean
+        verification_token?: string  // For testing
+      }>(`/api/v1/auth/resend-verification?email=${encodeURIComponent(email)}`)
+
+      if (response.success) {
+        return { 
+          success: true, 
+          message: response.data?.message || "Verification email sent!",
+          verification_token: response.data?.verification_token  // For testing
+        }
+      } else {
+        return { success: false, error: response.error || "Failed to resend verification" }
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message || "Failed to resend verification" }
+    }
+  },
+  [],
+)
+
 
   const logout = useCallback(async () => {
     setState((prev) => ({ ...prev, isLoading: true }))
@@ -251,5 +407,7 @@ export function useAuth() {
     logout,
     updateProfile,
     clearError,
+    verifyEmail,
+    resendVerification,
   }
 }
