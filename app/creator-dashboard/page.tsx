@@ -21,122 +21,143 @@ import { useDashboardAnalytics } from "@/hooks/useAnalytics"
 import { useRealTimeNotifications } from "@/hooks/useNotifications"
 import type { Campaign } from "@/lib/types/api"
 
+// Transform API campaign to frontend campaign format
+const transformCampaign = (apiCampaign: any): Campaign => {
+  return {
+    id: apiCampaign.id,
+    title: apiCampaign.name || apiCampaign.title || 'Untitled Campaign',
+    brand: {
+      id: apiCampaign.brand_id || '',
+      name: apiCampaign.brand_name || 'Unknown Brand',
+      logo: apiCampaign.brand_logo || '/placeholder.svg'
+    },
+    category: apiCampaign.category || 'general',
+    startDate: apiCampaign.start_date || apiCampaign.startDate,
+    endDate: apiCampaign.end_date || apiCampaign.endDate,
+    status: apiCampaign.status || 'active',
+    visibility: apiCampaign.visibility || 'public',
+    budget: apiCampaign.budget || 0,
+    requirements: {
+      minimumFollowers: apiCampaign.min_followers || 0,
+      location: apiCampaign.location || [],
+      gender: apiCampaign.gender || 'all',
+      age: apiCampaign.age_range || { min: 18, max: 65 },
+      deliverables: apiCampaign.deliverables || [],
+      targetAudience: apiCampaign.target_audience || [],
+      contentGuidelines: apiCampaign.content_guidelines || '',
+      hashtags: apiCampaign.hashtags || [],
+      mentions: apiCampaign.mentions || [],
+      allowedPlatforms: apiCampaign.allowed_platforms || ['tiktok']
+    },
+    metrics: {
+      totalApplications: apiCampaign.applications_count || 0,
+      approvedCreators: apiCampaign.approved_count || 0,
+      totalPosts: apiCampaign.total_posts || 0,
+      totalViews: apiCampaign.total_views || 0,
+      totalLikes: apiCampaign.total_likes || 0,
+      totalComments: apiCampaign.total_comments || 0,
+      totalShares: apiCampaign.total_shares || 0,
+      totalGMV: apiCampaign.total_gmv || apiCampaign.current_gmv || 0,
+      averageEngagementRate: apiCampaign.avg_engagement_rate || 0
+    },
+    thumbnail: apiCampaign.thumbnail,
+    description: apiCampaign.description || ''
+  }
+}
+
+// Transform campaign for CampaignDetailsModal
+const transformCampaignForModal = (campaign: Campaign) => {
+  return {
+    id: campaign.id,
+    title: campaign.title,
+    brand: campaign.brand.name,
+    brandLogo: campaign.brand.logo,
+    currentGmv: campaign.metrics.totalGMV,
+    gmvTarget: 10000, // Default target, should come from API
+    totalDeliverables: campaign.requirements.deliverables.length,
+    completedDeliverables: 0, // Should come from API
+    daysLeft: Math.max(0, Math.ceil((new Date(campaign.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))),
+    deliverables: campaign.requirements.deliverables,
+    description: campaign.description
+  }
+}
+
 export default function CreatorDashboard() {
   const { user, isAuthenticated } = useAuth()
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
-  const [dateRange, setDateRange] = useState("30d")
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [dateRange, setDateRange] = useState("last_30_days")
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
-  // Real-time notifications
-  useRealTimeNotifications()
+  // Hooks for data fetching
+  const { campaigns: rawCampaigns = [], loading: campaignsLoading, error: campaignsError, refetch: refetchCampaigns } = useCampaigns('active')
+  const { analytics, loading: analyticsLoading, error: analyticsError } = useDashboardAnalytics({ timeframe: dateRange })
+  const { isConnected } = useRealTimeNotifications()
 
-  // Calculate date range
-  const getDateRange = (range: string) => {
-    const endDate = new Date().toISOString().split("T")[0]
-    const startDate = new Date()
+  // Transform campaigns to match the expected type
+  const campaigns = rawCampaigns.map(transformCampaign)
 
-    switch (range) {
-      case "7d":
-        startDate.setDate(startDate.getDate() - 7)
-        break
-      case "30d":
-        startDate.setDate(startDate.getDate() - 30)
-        break
-      case "90d":
-        startDate.setDate(startDate.getDate() - 90)
-        break
-      case "1y":
-        startDate.setFullYear(startDate.getFullYear() - 1)
-        break
-      default:
-        startDate.setDate(startDate.getDate() - 30)
-    }
-
-    return {
-      startDate: startDate.toISOString().split("T")[0],
-      endDate,
-    }
-  }
-
-  const { startDate, endDate } = getDateRange(dateRange)
-
-  // Fetch creator's campaigns
-  const {
-    campaigns,
-    loading: campaignsLoading,
-    error: campaignsError,
-    refetch: refetchCampaigns,
-  } = useCampaigns({
-    // Filter for creator's campaigns only
-    status: ["active", "completed"],
-    enabled: isAuthenticated,
-  })
-
-  // Fetch dashboard analytics
-  const {
-    analytics,
-    loading: analyticsLoading,
-    error: analyticsError,
-    refetch: refetchAnalytics,
-  } = useDashboardAnalytics({
-    startDate,
-    endDate,
-    enabled: isAuthenticated,
-  })
-
-  // Sort campaigns by priority (overdue -> active -> completed)
-  const sortedCampaigns = campaigns.sort((a, b) => {
-    const now = new Date()
-    const aEndDate = new Date(a.endDate)
-    const bEndDate = new Date(b.endDate)
-
-    // Check if overdue
-    const aOverdue = aEndDate < now && a.status === "active"
-    const bOverdue = bEndDate < now && b.status === "active"
-
-    if (aOverdue && !bOverdue) return -1
-    if (!aOverdue && bOverdue) return 1
-
-    // Then by status priority
-    const statusPriority = { active: 1, paused: 2, completed: 3, draft: 4, cancelled: 5 }
-    return statusPriority[a.status] - statusPriority[b.status]
+  // Sort campaigns by urgency (overdue first, then by days left)
+  const sortedCampaigns = [...campaigns].sort((a, b) => {
+    const daysLeftA = Math.ceil((new Date(a.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    const daysLeftB = Math.ceil((new Date(b.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    
+    // Overdue campaigns first
+    if (daysLeftA < 0 && daysLeftB >= 0) return -1
+    if (daysLeftB < 0 && daysLeftA >= 0) return 1
+    
+    // Then by days left (ascending)
+    return daysLeftA - daysLeftB
   })
 
   const handleViewCampaignDetails = (campaign: Campaign) => {
     setSelectedCampaign(campaign)
+    setIsModalOpen(true)
   }
 
-  const formatViews = (views: number) => {
-    if (views >= 1000000) {
-      return `${(views / 1000000).toFixed(1)}M`
-    }
-    if (views >= 1000) {
-      return `${(views / 1000).toFixed(0)}K`
-    }
-    return views.toString()
+  const handleCloseModal = () => {
+    setIsModalOpen(false)
+    setTimeout(() => {
+      setSelectedCampaign(null)
+    }, 200)
   }
 
-  const calculateGMVProgress = (currentGMV: number, targetGMV = 10000) => {
-    return Math.min((currentGMV / targetGMV) * 100, 100)
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Please log in to access your dashboard</h1>
-          <Button onClick={() => (window.location.href = "/auth")}>Go to Login</Button>
-        </div>
-      </div>
-    )
-  }
+  // Mock leaderboard data
+  const leaderboardData = [
+    {
+      rank: 1,
+      creator: { name: "Sarah Chen", avatar: "/placeholder.svg?height=40&width=40", username: "@sarahstyle" },
+      gmv: 45250,
+      campaigns: 12,
+      isCurrentUser: false,
+    },
+    {
+      rank: 2,
+      creator: { name: "Mike Rodriguez", avatar: "/placeholder.svg?height=40&width=40", username: "@mikefit" },
+      gmv: 38900,
+      campaigns: 10,
+      isCurrentUser: false,
+    },
+    {
+      rank: 3,
+      creator: { name: "You", avatar: user?.avatar || "/placeholder.svg?height=40&width=40", username: "@" + (user?.username || "creator") },
+      gmv: analytics?.overview.totalGMV || 0,
+      campaigns: analytics?.overview.totalCampaigns || 0,
+      isCurrentUser: true,
+    },
+  ]
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-black text-white flex">
+      {/* Sidebar */}
       <DashboardSidebar />
 
-      <div className="ml-[250px] min-h-screen">
+      {/* Main Content */}
+      <div className={`flex-1 transition-all duration-300 ${sidebarCollapsed ? "ml-20" : "ml-60"}`}>
+        {/* Header */}
         <DashboardHeader />
 
+        {/* Page Content */}
         <main className="p-6">
           {/* Enhanced Gamified Welcome Banner */}
           <div className="mb-8 bg-gradient-to-r from-gray-900 via-purple-900/40 to-pink-900/30 p-8 rounded-xl border border-purple-500/30 relative overflow-hidden">
@@ -172,118 +193,69 @@ export default function CreatorDashboard() {
                     </p>
                   </div>
                 </div>
-                <div className="flex flex-col min-w-[300px]">
-                  <div className="text-sm text-gray-400 mb-2">Progress to $10K GMV Badge</div>
-                  <div className="flex items-center gap-4">
-                    <Progress
-                      value={calculateGMVProgress(analytics?.overview.totalGMV || 0)}
-                      className="h-4 flex-1 bg-gray-700"
-                      indicatorClassName="bg-gradient-to-r from-purple-600 to-pink-600"
-                    />
-                    <span className="text-lg font-bold text-purple-400">
-                      {calculateGMVProgress(analytics?.overview.totalGMV || 0).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    ${Math.max(0, 10000 - (analytics?.overview.totalGMV || 0)).toLocaleString()} left to unlock premium
-                    tier!
-                  </div>
+                <div className="flex flex-col gap-3">
+                  <Progress value={75} className="h-2" />
+                  <p className="text-sm text-gray-400">
+                    ${analytics?.overview.totalGMV || 0} / $10,000 to premium tier
+                  </p>
+                  <Button className="bg-purple-600 hover:bg-purple-700">
+                    View Available Campaigns <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Performance Metrics with Date Range */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Performance Overview</h2>
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="w-32 bg-gray-900 border-gray-800">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-gray-900 border-gray-800">
-                  <SelectItem value="7d">Last 7 days</SelectItem>
-                  <SelectItem value="30d">Last 30 days</SelectItem>
-                  <SelectItem value="90d">Last 90 days</SelectItem>
-                  <SelectItem value="1y">Last year</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
+          {/* Key Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             {analyticsLoading ? (
               <DashboardMetricsSkeleton />
             ) : analyticsError ? (
-              <ApiErrorDisplay error={analyticsError} retry={refetchAnalytics} />
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-400 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4" />
-                      Total GMV
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-baseline">
-                      <div className="text-2xl font-bold">${(analytics?.overview.totalGMV || 0).toLocaleString()}</div>
-                      <Badge className="ml-2 bg-green-600 hover:bg-green-700">
-                        +{analytics?.trends.gmvGrowth || 0}%
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">vs. previous period</div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-400 flex items-center gap-2">
-                      <Eye className="h-4 w-4" />
-                      Total Views
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-baseline">
-                      <div className="text-2xl font-bold">{formatViews(analytics?.overview.totalViews || 0)}</div>
-                      <Badge className="ml-2 bg-blue-600 hover:bg-blue-700">
-                        +{analytics?.trends.engagementGrowth || 0}%
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">vs. previous period</div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-400">Active Campaigns</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-baseline">
-                      <div className="text-2xl font-bold">{campaigns.filter((c) => c.status === "active").length}</div>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      {campaigns.filter((c) => new Date(c.endDate) < new Date() && c.status === "active").length}{" "}
-                      overdue,{" "}
-                      {campaigns.filter((c) => new Date(c.endDate) >= new Date() && c.status === "active").length} on
-                      track
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gray-900 border-gray-800">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-400">Total Earnings</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-baseline">
-                      <div className="text-2xl font-bold">
-                        ${(analytics?.overview.totalPayouts || 0).toLocaleString()}
-                      </div>
-                      <Badge className="ml-2 bg-green-600 hover:bg-green-700">+25%</Badge>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">vs. previous period</div>
-                  </CardContent>
-                </Card>
+              <div className="col-span-4">
+                <ApiErrorDisplay error={analyticsError} retry={() => window.location.reload()} />
               </div>
+            ) : (
+              <>
+                <Card className="bg-gray-900 border-gray-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-normal text-gray-400">Total GMV</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">${(analytics?.overview.totalGMV || 0).toLocaleString()}</div>
+                    <div className="text-sm text-green-500">+{analytics?.overview.gmvGrowth || 0}% from previous period</div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gray-900 border-gray-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-normal text-gray-400">Active Campaigns</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{analytics?.overview.activeCampaigns || 0}</div>
+                    <div className="text-sm text-gray-500">{analytics?.overview.pendingApplications || 0} pending</div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gray-900 border-gray-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-normal text-gray-400">Total Views</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{((analytics?.overview.totalViews || 0) / 1000).toFixed(1)}K</div>
+                    <div className="text-sm text-green-500">+{analytics?.overview.viewsGrowth || 0}% from previous period</div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gray-900 border-gray-800">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-normal text-gray-400">Engagement Rate</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{analytics?.overview.avgEngagementRate || 0}%</div>
+                    <div className="text-sm text-green-500">+{analytics?.overview.engagementGrowth || 0}% from previous period</div>
+                  </CardContent>
+                </Card>
+              </>
             )}
           </div>
 
@@ -324,114 +296,101 @@ export default function CreatorDashboard() {
                 <ApiErrorDisplay error={campaignsError} retry={refetchCampaigns} />
               ) : sortedCampaigns.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {sortedCampaigns.map((campaign) => (
-                    <CampaignCard
-                      key={campaign.id}
-                      title={campaign.title}
-                      brand={campaign.brand.name}
-                      logo={campaign.brand.logo}
-                      deliverables={campaign.requirements.deliverables.length}
-                      completed={Math.floor(campaign.requirements.deliverables.length * 0.6)} // This should come from API
-                      gmv={campaign.metrics.totalGMV}
-                      target={campaign.budget}
-                      daysLeft={Math.ceil(
-                        (new Date(campaign.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
-                      )}
-                      status={
-                        new Date(campaign.endDate) < new Date() && campaign.status === "active"
-                          ? "overdue"
-                          : campaign.status === "active"
-                            ? "active"
-                            : "completed"
-                      }
-                      onViewDetails={() => handleViewCampaignDetails(campaign)}
-                    />
-                  ))}
+                  {sortedCampaigns.map((campaign) => {
+                    const rawCampaign = rawCampaigns.find(c => c.id === campaign.id)
+                    const daysLeft = Math.ceil((new Date(campaign.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                    const isOverdue = daysLeft < 0
+                    const isUrgent = daysLeft <= 3 && daysLeft >= 0
+
+                    return (
+                      <CampaignCard
+                        key={campaign.id}
+                        title={campaign.title}
+                        brand={campaign.brand.name}
+                        image={campaign.brand.logo || '/placeholder.svg'}
+                        completedDeliverables={rawCampaign?.completed_deliverables || 0}
+                        totalDeliverables={rawCampaign?.total_deliverables || campaign.requirements.deliverables.length}
+                        currentGmv={campaign.metrics.totalGMV}
+                        target={rawCampaign?.gmv_target || 10000}
+                        daysLeft={Math.max(0, daysLeft)}
+                        status={isOverdue ? "overdue" as const : campaign.status as any}
+                        endDate={new Date(campaign.endDate)}
+                        isUrgent={isUrgent || isOverdue}
+                        onClick={() => handleViewCampaignDetails(campaign)}
+                      />
+                    )
+                  })}
                 </div>
               ) : (
-                <div className="text-center py-12">
-                  <div className="h-16 w-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Trophy className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">No campaigns yet</h3>
-                  <p className="text-gray-400 mb-4">Start applying to campaigns to see them here</p>
-                  <Button
-                    onClick={() => (window.location.href = "/campaigns")}
-                    className="bg-purple-600 hover:bg-purple-700"
-                  >
-                    Browse Campaigns
-                  </Button>
-                </div>
+                <Card className="bg-gray-900 border-gray-800 p-8 text-center">
+                  <p className="text-gray-400 mb-4">No active campaigns yet.</p>
+                  <Button>Browse Campaigns</Button>
+                </Card>
               )}
             </TabsContent>
 
             <TabsContent value="leaderboard" className="mt-0">
-              <Card className="bg-gray-900 border-gray-800">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-purple-400" />
-                    Global Leaderboard
-                  </CardTitle>
-                  <CardDescription>Top performing creators across all campaigns this month</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <LeaderboardTable />
-                </CardContent>
-              </Card>
+              <div className="space-y-6">
+                {/* Leaderboard Filters */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold">Global Leaderboard</h2>
+                  <Select defaultValue="all-time">
+                    <SelectTrigger className="w-48 bg-gray-900 border-gray-800">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all-time">All Time</SelectItem>
+                      <SelectItem value="this-month">This Month</SelectItem>
+                      <SelectItem value="this-week">This Week</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Your Rank Card */}
+                <Card className="bg-gradient-to-r from-purple-900/50 to-pink-900/30 border-purple-600/50">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="text-3xl font-bold text-purple-400">#{leaderboardData.find(l => l.isCurrentUser)?.rank || 'N/A'}</div>
+                        <div>
+                          <p className="font-semibold">Your Global Ranking</p>
+                          <p className="text-sm text-gray-400">Keep creating to climb the ranks!</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold">${(analytics?.overview.totalGMV || 0).toLocaleString()}</p>
+                        <p className="text-sm text-gray-400">Total GMV</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Leaderboard Table */}
+                <LeaderboardTable />
+              </div>
             </TabsContent>
           </Tabs>
 
-          {/* Badges & Achievements */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Your Badges & Achievements</h2>
-              <Button variant="ghost" size="sm" className="text-purple-400 hover:text-purple-300">
-                View All <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {/* Dynamic badge rendering based on user achievements */}
+          {/* Achievement & Milestones */}
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold">Achievements & Milestones</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center text-center">
                 <div
                   className={`h-16 w-16 rounded-full flex items-center justify-center mb-3 ${
-                    (analytics?.overview.totalGMV || 0) >= 5000 ? "bg-purple-600" : "bg-gray-800"
+                    (analytics?.overview.totalGMV || 0) >= 1000 ? "bg-purple-600" : "bg-gray-800"
                   }`}
                 >
                   <Trophy
                     className={`h-8 w-8 ${
-                      (analytics?.overview.totalGMV || 0) >= 5000 ? "text-white" : "text-gray-600"
+                      (analytics?.overview.totalGMV || 0) >= 1000 ? "text-white" : "text-gray-600"
                     }`}
                   />
                 </div>
-                <h3 className="font-medium text-sm">$5K GMV</h3>
+                <h3 className="font-medium text-sm">First $1K</h3>
                 <p className="text-xs text-gray-400">
-                  {(analytics?.overview.totalGMV || 0) >= 5000 ? "Achieved" : "Locked"}
+                  {(analytics?.overview.totalGMV || 0) >= 1000 ? "Achieved" : "Locked"}
                 </p>
-              </div>
-
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center text-center">
-                <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-3 relative">
-                  <Trophy className="h-8 w-8 text-gray-600" />
-                  {(analytics?.overview.totalGMV || 0) > 5000 && (analytics?.overview.totalGMV || 0) < 10000 && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-16 w-16 rounded-full border-4 border-purple-600 border-t-transparent animate-spin"></div>
-                    </div>
-                  )}
-                </div>
-                <h3 className="font-medium text-sm">$10K GMV</h3>
-                <p className="text-xs text-gray-400">
-                  {(analytics?.overview.totalGMV || 0) >= 10000
-                    ? "Achieved"
-                    : `${calculateGMVProgress(analytics?.overview.totalGMV || 0).toFixed(0)}% Complete`}
-                </p>
-              </div>
-
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center text-center">
-                <div className="h-16 w-16 rounded-full bg-gray-800 flex items-center justify-center mb-3">
-                  <Trophy className="h-8 w-8 text-gray-600" />
-                </div>
-                <h3 className="font-medium text-sm">$25K GMV</h3>
-                <p className="text-xs text-gray-400">Locked</p>
               </div>
 
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col items-center text-center">
@@ -485,9 +444,9 @@ export default function CreatorDashboard() {
       {/* Campaign Details Modal */}
       {selectedCampaign && (
         <CampaignDetailsModal
-          isOpen={!!selectedCampaign}
-          onClose={() => setSelectedCampaign(null)}
-          campaign={selectedCampaign}
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          campaign={transformCampaignForModal(selectedCampaign)}
         />
       )}
     </div>

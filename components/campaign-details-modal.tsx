@@ -89,6 +89,7 @@ const campaignLeaderboard = [
 ]
 
 export function CampaignDetailsModal(props: CampaignDetailsModalProps) {
+  const { campaign, isOpen, onClose } = props
   const {
     currentGmv = 0,
     gmvTarget = 0,
@@ -119,7 +120,14 @@ export function CampaignDetailsModal(props: CampaignDetailsModalProps) {
   }
 
   return (
-    <Dialog open={props.isOpen} onOpenChange={props.onClose}>
+    <Dialog 
+      open={props.isOpen} 
+      onOpenChange={(open) => {
+        if (!open) {
+          props.onClose()
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto dark:bg-zinc-900 dark:border-zinc-700">
         <DialogHeader>
           <DialogTitle className="text-xl">{title} - Campaign Details</DialogTitle>

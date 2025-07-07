@@ -1,346 +1,293 @@
-// lib/api/client.ts - Enhanced version with connection testing
+// lib/api/client.ts - Complete API Client with Error Handling
 
-interface ApiResponse<T> {
+import { API_CONFIG } from './config'
+
+// Types
+export interface ApiResponse<T> {
   success: boolean
   data?: T
-  error?: string
+  error?: string | null
   message?: string
+  statusCode?: number
 }
 
+export interface RequestOptions {
+  method?: string
+  headers?: Record<string, string>
+  body?: any
+  params?: Record<string, any>
+  skipAuth?: boolean
+  signal?: AbortSignal
+}
+
+// Base API Client Class
 class ApiClient {
   private baseUrl: string
+  private isHealthy: boolean = false
+  private headers: Record<string, string>
+  private timeout: number = 30000 // 30 seconds
   private isRefreshing = false
   private refreshSubscribers: Array<(token: string) => void> = []
-  private isHealthy = true
-  private lastHealthCheck = 0
-  private healthCheckInterval = 30000 // 30 seconds
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl
-    // Perform initial health check
-    this.checkHealth()
+    this.headers = {
+      'Content-Type': 'application/json',
+    }
+    
+    // Check health but don't block initialization
+    this.checkHealth().catch(err => {
+      console.warn(`⚠️ Service ${baseUrl} is not available. Will retry on first request.`)
+    })
   }
 
-  // Add health check method
-  private async checkHealth(): Promise<boolean> {
-    const now = Date.now()
-    
-    // Skip if we checked recently
-    if (now - this.lastHealthCheck < this.healthCheckInterval) {
-      return this.isHealthy
-    }
-
+  // Health check method
+  async checkHealth(): Promise<boolean> {
     try {
       console.log(`🏥 Checking health of ${this.baseUrl}...`)
       const response = await fetch(`${this.baseUrl}/health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
-        // Short timeout for health check
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
       })
-      
-      this.isHealthy = response.ok
-      this.lastHealthCheck = now
-      
-      if (this.isHealthy) {
-        console.log(`✅ ${this.baseUrl} is healthy`)
-      } else {
-        console.error(`❌ ${this.baseUrl} returned status ${response.status}`)
+
+      if (!response.ok) {
+        // Special handling for 404 on health endpoint
+        if (response.status === 404) {
+          console.warn(`⚠️ Health endpoint not found at ${this.baseUrl}, but service might still work`)
+          this.isHealthy = true // Assume healthy if health endpoint doesn't exist
+          return true
+        }
+        throw new Error(`Health check failed: ${response.status}`)
       }
-      
-      return this.isHealthy
-    } catch (error) {
+
+      const data = await response.json()
+      this.isHealthy = true
+      console.log(`✅ ${this.baseUrl} is healthy:`, data)
+      return true
+    } catch (error: any) {
       this.isHealthy = false
-      this.lastHealthCheck = now
-      console.error(`❌ ${this.baseUrl} is not accessible:`, error)
+      console.error(`❌ ${this.baseUrl} health check failed:`, error.message)
       return false
     }
   }
 
+  // Get auth token from storage
   private getAuthToken(): string | null {
-    // Try multiple storage locations for flexibility
-    return localStorage.getItem("auth_token") || 
-           localStorage.getItem("access_token") || 
-           sessionStorage.getItem("auth_token") ||
-           sessionStorage.getItem("access_token");
+    if (typeof window === 'undefined') return null
+    
+    return localStorage.getItem('auth_token') || 
+           localStorage.getItem('access_token') ||
+           sessionStorage.getItem('auth_token') ||
+           sessionStorage.getItem('access_token')
   }
 
+  // Get refresh token
   private getRefreshToken(): string | null {
-    return localStorage.getItem("refresh_token") || 
-           sessionStorage.getItem("refresh_token");
+    if (typeof window === 'undefined') return null
+    
+    return localStorage.getItem('refresh_token') ||
+           sessionStorage.getItem('refresh_token')
   }
 
-  private setTokens(accessToken: string, refreshToken?: string) {
-    // Store in multiple locations for redundancy
-    localStorage.setItem("auth_token", accessToken)
-    localStorage.setItem("access_token", accessToken)
-    sessionStorage.setItem("auth_token", accessToken)
-    sessionStorage.setItem("access_token", accessToken)
+  // Set auth tokens
+  setAuthTokens(accessToken: string, refreshToken?: string) {
+    localStorage.setItem('auth_token', accessToken)
+    localStorage.setItem('access_token', accessToken)
     
     if (refreshToken) {
-      localStorage.setItem("refresh_token", refreshToken)
-      sessionStorage.setItem("refresh_token", refreshToken)
+      localStorage.setItem('refresh_token', refreshToken)
     }
   }
 
-  private clearTokens() {
-    localStorage.removeItem("auth_token")
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    sessionStorage.removeItem("auth_token")
-    sessionStorage.removeItem("access_token")
-    sessionStorage.removeItem("refresh_token")
+  // Clear auth tokens
+  clearAuthTokens() {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+    sessionStorage.removeItem('auth_token')
+    sessionStorage.removeItem('access_token')
+    sessionStorage.removeItem('refresh_token')
   }
 
-  private onTokenRefreshed(token: string) {
-    this.refreshSubscribers.forEach(callback => callback(token))
-    this.refreshSubscribers = []
-  }
-
-  private addRefreshSubscriber(callback: (token: string) => void) {
-    this.refreshSubscribers.push(callback)
-  }
-
+  // Refresh token logic
   private async refreshAccessToken(): Promise<string | null> {
     const refreshToken = this.getRefreshToken()
-    
     if (!refreshToken) {
-      console.error("No refresh token available")
+      console.error('No refresh token available')
       return null
     }
 
     try {
-      console.log("🔄 Attempting to refresh access token...")
-      
       const response = await fetch(`${this.baseUrl}/api/v1/auth/refresh`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
-        credentials: 'include',
       })
 
       if (!response.ok) {
-        console.error("❌ Token refresh failed:", response.status)
-        return null
+        throw new Error('Token refresh failed')
       }
 
       const data = await response.json()
-      
       if (data.access_token) {
-        console.log("✅ Token refreshed successfully")
-        this.setTokens(data.access_token, data.refresh_token)
+        this.setAuthTokens(data.access_token, data.refresh_token)
         return data.access_token
       }
-
-      return null
     } catch (error) {
-      console.error("❌ Token refresh error:", error)
-      return null
+      console.error('Failed to refresh token:', error)
+      this.clearAuthTokens()
     }
+
+    return null
   }
 
-  private async makeRequest<T>(
+  // Subscribe to token refresh
+  private subscribeTokenRefresh(cb: (token: string) => void) {
+    this.refreshSubscribers.push(cb)
+  }
+
+  // Notify all subscribers about token refresh
+  private onTokenRefreshed(token: string) {
+    this.refreshSubscribers.forEach(cb => cb(token))
+    this.refreshSubscribers = []
+  }
+
+  // Main request method
+  async makeRequest<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestOptions = {},
     retryCount = 0
   ): Promise<ApiResponse<T>> {
     try {
-      // Check service health first
-      const isHealthy = await this.checkHealth()
-      if (!isHealthy && retryCount === 0) {
-        return {
-          success: false,
-          error: `Service at ${this.baseUrl} is not available`,
-          message: 'Please check if the backend service is running'
-        }
+      // If service is not healthy, try health check again
+      if (!this.isHealthy && retryCount === 0) {
+        await this.checkHealth()
       }
 
       const url = `${this.baseUrl}${endpoint}`
-      console.log(`🌐 Making API request to: ${url}`)
+      const token = this.getAuthToken()
 
-      // Get auth token from localStorage
-      const authToken = this.getAuthToken()
-      console.log(`🔐 Auth token present: ${!!authToken}`)
-      
-      // Debug: Log first 20 chars of token
-      if (authToken) {
-        console.log(`🔑 Token preview: ${authToken.substring(0, 20)}...`)
+      console.log(`🚀 ${options.method || 'GET'} ${url}`)
+      console.log(`🔑 Auth token present: ${!!token}`)
+
+      // Build headers
+      const headers: Record<string, string> = {
+        ...this.headers,
+        ...options.headers,
       }
 
-      // Create the headers object
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        ...options.headers, // Merge any provided headers
+      // Add auth token if available and not skipped
+      if (token && !options.skipAuth) {
+        headers['Authorization'] = `Bearer ${token}`
       }
 
-      // Add authentication header if token exists
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`
-      }
-
-      // Create the fetch options with timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
-
-      const fetchOptions: RequestInit = {
-        ...options,
+      // Build request config
+      const config: RequestInit = {
+        method: options.method || 'GET',
         headers,
-        credentials: 'include', // Include cookies if any
-        signal: controller.signal
+        signal: options.signal || AbortSignal.timeout(this.timeout),
       }
 
-      console.log(`🔧 Request method: ${options.method || 'GET'}`)
-      if (options.body) {
-        console.log(`📦 Request body:`, options.body)
+      // Add body for non-GET requests
+      if (options.body && options.method !== 'GET') {
+        config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body)
       }
 
-      try {
-        const response = await fetch(url, fetchOptions)
-        clearTimeout(timeoutId)
+      // Make the request
+      const response = await fetch(url, config)
+      console.log(`📡 Response status: ${response.status}`)
 
-        console.log(`📡 Response status: ${response.status}`)
-
-        // Handle 401 with token refresh
-        if (response.status === 401 && retryCount === 0) {
-          console.warn('🔒 Received 401, attempting token refresh...')
+      // Handle 401 Unauthorized
+      if (response.status === 401 && retryCount === 0) {
+        console.warn('🔒 Received 401, attempting token refresh...')
+        
+        if (!this.isRefreshing) {
+          this.isRefreshing = true
+          const newToken = await this.refreshAccessToken()
           
-          if (!this.isRefreshing) {
-            this.isRefreshing = true
-            
-            const newToken = await this.refreshAccessToken()
-            
-            if (newToken) {
-              this.isRefreshing = false
-              this.onTokenRefreshed(newToken)
-              
-              // Retry the original request with new token
-              return this.makeRequest<T>(endpoint, options, 1)
-            } else {
-              this.isRefreshing = false
-              // Refresh failed, clear tokens and redirect
-              this.clearTokens()
-              
-              // Only redirect if not already on auth page
-              if (!window.location.pathname.includes('/auth')) {
-                window.location.href = "/auth"
-              }
-              
-              return {
-                success: false,
-                error: "Authentication required",
-                message: "Please log in again"
-              }
-            }
+          if (newToken) {
+            this.isRefreshing = false
+            this.onTokenRefreshed(newToken)
+            // Retry original request
+            return this.makeRequest<T>(endpoint, options, 1)
           } else {
-            // Wait for ongoing refresh to complete
-            return new Promise<ApiResponse<T>>((resolve) => {
-              this.addRefreshSubscriber((token: string) => {
-                // Retry request with refreshed token
-                this.makeRequest<T>(endpoint, options, 1).then(resolve)
-              })
+            this.isRefreshing = false
+            this.clearAuthTokens()
+            // Redirect to login or handle as needed
+            if (typeof window !== 'undefined') {
+              window.location.href = '/auth/login'
+            }
+          }
+        } else {
+          // Wait for token refresh to complete
+          return new Promise((resolve) => {
+            this.subscribeTokenRefresh((newToken: string) => {
+              resolve(this.makeRequest<T>(endpoint, options, 1))
             })
-          }
+          })
         }
-
-        // Handle other non-OK responses
-        if (!response.ok) {
-          let errorMessage = `HTTP ${response.status}: ${response.statusText}`
-          let errorDetails: any = null
-
-          try {
-            const contentType = response.headers.get('content-type')
-            if (contentType && contentType.includes('application/json')) {
-              errorDetails = await response.json()
-              errorMessage = errorDetails.detail || errorDetails.message || errorMessage
-            } else {
-              const errorText = await response.text()
-              if (errorText) {
-                errorMessage = errorText
-              }
-            }
-          } catch (e) {
-            console.error('❌ Failed to parse error response:', e)
-          }
-
-          console.error(`❌ API Error: ${errorMessage}`)
-          if (errorDetails) {
-            console.error(`❌ Error details:`, errorDetails)
-          }
-          
-          return {
-            success: false,
-            error: errorMessage,
-            message: errorDetails?.detail || errorMessage
-          }
-        }
-
-        // Parse successful response
-        let data: any = null
-        try {
-          const contentType = response.headers.get('content-type')
-          if (contentType && contentType.includes('application/json')) {
-            data = await response.json()
-            console.log('✅ Response data:', data)
-          } else {
-            // Handle non-JSON responses
-            data = await response.text()
-            console.log('✅ Response (non-JSON):', data)
-          }
-        } catch (jsonError) {
-          console.error('❌ Failed to parse response:', jsonError)
-          return {
-            success: false,
-            error: 'Invalid response format from server'
-          }
-        }
-
-        return {
-          success: true,
-          data: data,
-        }
-      } catch (fetchError) {
-        clearTimeout(timeoutId)
-        
-        if (fetchError instanceof Error) {
-          if (fetchError.name === 'AbortError') {
-            return {
-              success: false,
-              error: 'Request timeout - server took too long to respond',
-              message: 'Please try again later'
-            }
-          }
-        }
-        
-        throw fetchError
       }
-    } catch (error) {
-      console.error('❌ API request failed:', error)
+
+      // Parse response
+      let responseData: any = null
+      const contentType = response.headers.get('content-type')
       
-      // Network errors or other failures
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      if (contentType && contentType.includes('application/json')) {
+        responseData = await response.json()
+      } else if (!response.ok) {
+        responseData = await response.text()
+      }
+
+      // Handle non-OK responses
+      if (!response.ok) {
+        const errorMessage = responseData?.detail || responseData?.message || responseData || `Request failed with status ${response.status}`
+        console.error(`❌ API Error: ${errorMessage}`)
+        
         return {
           success: false,
-          error: 'Network error - could not connect to server',
-          message: `Please check if the backend service at ${this.baseUrl} is running`
+          error: errorMessage,
+          statusCode: response.status,
+          data: null as any,
         }
       }
+
+      console.log('✅ Request successful')
+      return {
+        success: true,
+        data: responseData,
+        error: null,
+        statusCode: response.status,
+      }
+
+    } catch (error: any) {
+      console.error(`❌ Request error:`, error)
       
+      // Handle different error types
+      let errorMessage = 'An unexpected error occurred'
+      
+      if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+        errorMessage = `Cannot connect to ${this.baseUrl}. Please ensure the backend service is running.`
+      } else if (error.name === 'AbortError') {
+        errorMessage = 'Request timeout. The server took too long to respond.'
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
+        data: null as any,
       }
     }
   }
 
+  // HTTP method helpers
   async get<T>(endpoint: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
     let url = endpoint
     
     if (params) {
       const searchParams = new URLSearchParams()
-      
-      // Handle params properly
       Object.entries(params).forEach(([key, value]) => {
         if (value !== null && value !== undefined) {
           searchParams.append(key, String(value))
@@ -353,29 +300,27 @@ class ApiClient {
       }
     }
     
-    return this.makeRequest<T>(url, {
-      method: 'GET',
-    })
+    return this.makeRequest<T>(url, { method: 'GET' })
   }
 
   async post<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
     return this.makeRequest<T>(endpoint, {
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data,
     })
   }
 
   async put<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
     return this.makeRequest<T>(endpoint, {
       method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data,
     })
   }
 
   async patch<T>(endpoint: string, data?: any): Promise<ApiResponse<T>> {
     return this.makeRequest<T>(endpoint, {
       method: 'PATCH',
-      body: data ? JSON.stringify(data) : undefined,
+      body: data,
     })
   }
 
@@ -385,113 +330,50 @@ class ApiClient {
     })
   }
 
+  // File upload method
   async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
-    // Get auth token for file uploads
-    const authToken = this.getAuthToken()
-    const headers: HeadersInit = {}
+    const token = this.getAuthToken()
+    const headers: Record<string, string> = {}
     
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
     }
     
-    // For file uploads, don't set Content-Type header - let browser set it
     return this.makeRequest<T>(endpoint, {
       method: 'POST',
       body: formData,
       headers,
     })
   }
-
-  // Method to manually set auth tokens (useful after login)
-  setAuthTokens(accessToken: string, refreshToken?: string) {
-    this.setTokens(accessToken, refreshToken)
-  }
-
-  // Method to clear auth and logout
-  logout() {
-    this.clearTokens()
-    window.location.href = "/auth"
-  }
-
-  // Method to check if service is available
-  async isServiceAvailable(): Promise<boolean> {
-    return await this.checkHealth()
-  }
 }
 
-// Create service clients
-export const campaignServiceClient = new ApiClient('http://localhost:8002')
-export const userServiceClient = new ApiClient('http://localhost:8000')
-export const analyticsServiceClient = new ApiClient('http://localhost:8003')
-export const sharedServiceClient = new ApiClient('http://localhost:8001')
+// Create service-specific clients
+export const userServiceClient = new ApiClient(API_CONFIG.SERVICES.USER_SERVICE)
+export const campaignServiceClient = new ApiClient(API_CONFIG.SERVICES.CAMPAIGN_SERVICE)
+export const analyticsServiceClient = new ApiClient(API_CONFIG.SERVICES.ANALYTICS_SERVICE)
+export const paymentServiceClient = new ApiClient(API_CONFIG.SERVICES.PAYMENT_SERVICE)
+export const integrationServiceClient = new ApiClient(API_CONFIG.SERVICES.INTEGRATION_SERVICE)
+export const sharedServiceClient = new ApiClient(API_CONFIG.SERVICES.SHARED_SERVICE)
 
-// Test connection function
-export async function testConnection() {
-  console.log('🧪 Testing service connections...')
-  
-  const services = [
-    { name: 'Campaign Service', client: campaignServiceClient, url: 'http://localhost:8002' },
-    { name: 'User Service', client: userServiceClient, url: 'http://localhost:8000' },
-  ]
-  
-  const results: Record<string, boolean> = {}
-  
-  for (const service of services) {
-    console.log(`🔍 Testing ${service.name}...`)
-    const isAvailable = await service.client.isServiceAvailable()
-    results[service.name] = isAvailable
-    
-    if (!isAvailable) {
-      console.error(`❌ ${service.name} is not available at ${service.url}`)
-      console.error(`   Please ensure the backend service is running:`)
-      console.error(`   cd campaign-service && python -m uvicorn app.main:app --port 8002`)
-    }
-  }
-  
-  return results
+// Export the ApiClient class for custom instances
+export { ApiClient }
+
+// Helper function to set tokens across all clients
+export function setGlobalAuthTokens(accessToken: string, refreshToken?: string) {
+  userServiceClient.setAuthTokens(accessToken, refreshToken)
+  campaignServiceClient.setAuthTokens(accessToken, refreshToken)
+  analyticsServiceClient.setAuthTokens(accessToken, refreshToken)
+  paymentServiceClient.setAuthTokens(accessToken, refreshToken)
+  integrationServiceClient.setAuthTokens(accessToken, refreshToken)
+  sharedServiceClient.setAuthTokens(accessToken, refreshToken)
 }
 
-// Helper function to check auth status
-export function checkAuthStatus() {
-  const token = localStorage.getItem("auth_token") || 
-                localStorage.getItem("access_token") ||
-                sessionStorage.getItem("auth_token") ||
-                sessionStorage.getItem("access_token")
-                
-  console.log("🔐 Auth Status Check:")
-  console.log("  - Token exists:", !!token)
-  
-  if (token) {
-    try {
-      // Check if it's a session token (starts with 'token_')
-      if (token.startsWith('token_')) {
-        console.log("  - Token type: Session token")
-        return true // Session tokens don't have expiration info
-      }
-      
-      // Decode JWT to check expiration
-      const parts = token.split('.')
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]))
-        console.log("  - Token type: JWT")
-        console.log("  - Token payload:", payload)
-        
-        if (payload.exp) {
-          const expDate = new Date(payload.exp * 1000)
-          const now = new Date()
-          console.log("  - Token expires at:", expDate)
-          console.log("  - Token is expired:", expDate < now)
-          
-          return expDate > now // Return false if token is expired
-        }
-      }
-    } catch (e) {
-      console.error("  - Failed to decode token:", e)
-    }
-  }
-  
-  return !!token
+// Helper function to clear tokens across all clients
+export function clearGlobalAuthTokens() {
+  userServiceClient.clearAuthTokens()
+  campaignServiceClient.clearAuthTokens()
+  analyticsServiceClient.clearAuthTokens()
+  paymentServiceClient.clearAuthTokens()
+  integrationServiceClient.clearAuthTokens()
+  sharedServiceClient.clearAuthTokens()
 }
-
-// Export types for use in hooks
-export type { ApiResponse }

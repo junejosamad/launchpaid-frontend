@@ -1,29 +1,34 @@
+// hooks/useCampaigns.ts - Complete campaigns hook
 
-import { useState, useEffect } from "react"
-import { userServiceClient } from '@/lib/api/client'
+import { useState, useEffect } from 'react'
+import { campaignServiceClient } from '@/lib/api/client'
+import type { ApiResponse } from '@/lib/api/client'
 
-// hooks/useCampaigns.ts
+// Campaign type definition
 export interface Campaign {
   id: string
   name: string
   description?: string
-  status: "draft" | "active" | "paused" | "completed" | "cancelled"
-  type: string
+  brand_id: string
+  brand_name?: string
+  brand_logo?: string
+  agency_id: string
+  status: 'draft' | 'active' | 'paused' | 'completed'
+  start_date: string
+  end_date: string
   budget?: number
-  target_gmv?: number
+  category?: string
+  visibility?: string
+  min_followers?: number
   current_gmv?: number
-  target_creators?: number
-  current_creators?: number
-  target_posts?: number
-  current_posts?: number
-  total_views?: number
-  total_engagement?: number
-  start_date?: string
-  end_date?: string
+  gmv_target?: number
+  completed_deliverables?: number
+  total_deliverables?: number
   created_at: string
   updated_at: string
 }
 
+// Main hook for fetching campaigns
 export function useCampaigns(
   status?: string,
   limit: number = 20,
@@ -38,41 +43,48 @@ export function useCampaigns(
       setLoading(true)
       setError(null)
 
-      const params: Record<string, any> = { limit, offset }
+      console.log('🚀 Fetching campaigns...')
+
+      // Build params object
+      const params: Record<string, string | number> = { 
+        limit, 
+        offset 
+      }
+      
       if (status) params.status = status
 
-      const response = await userServiceClient.get<Campaign[]>(
-        "/api/v1/dashboard/campaigns",
+      console.log('📋 Request params:', params)
+
+      // Use the correct endpoint
+      const response: ApiResponse<Campaign[]> = await campaignServiceClient.get(
+        '/api/v1/campaigns',
         params
       )
 
+      console.log('📡 Campaigns response:', response)
+
       if (response.success && response.data) {
+        console.log('✅ Successfully fetched campaigns:', response.data)
         setCampaigns(response.data)
       } else {
-        throw new Error(response.error || "Failed to fetch campaigns")
+        const errorMsg = response.error || 'Failed to fetch campaigns'
+        console.error('❌ Campaigns fetch failed:', errorMsg)
+        setError(errorMsg)
+        setCampaigns([])
       }
     } catch (err: any) {
-      setError(err.message)
-      console.error("Campaigns fetch error:", err)
+      console.error("❌ Campaigns fetch error:", err)
+      setError(err.message || 'Unknown error occurred')
+      setCampaigns([])
     } finally {
       setLoading(false)
     }
   }
 
-  const createCampaign = async (campaignData: {
-    name: string
-    description?: string
-    type?: string
-    budget?: number
-    target_gmv?: number
-    target_creators?: number
-    target_posts?: number
-    start_date?: string
-    end_date?: string
-  }) => {
+  const createCampaign = async (campaignData: Partial<Campaign>) => {
     try {
-      const response = await userServiceClient.post<Campaign>(
-        "/api/v1/dashboard/campaigns",
+      const response: ApiResponse<Campaign> = await campaignServiceClient.post(
+        '/api/v1/campaigns',
         campaignData
       )
 
@@ -98,5 +110,135 @@ export function useCampaigns(
     error,
     refetch: fetchCampaigns,
     createCampaign,
+  }
+}
+
+// Hook for fetching a single campaign
+export function useCampaign(campaignId: string | null) {
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchCampaign = async () => {
+    if (!campaignId) return
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      const response: ApiResponse<Campaign> = await campaignServiceClient.get(
+        `/api/v1/campaigns/${campaignId}`
+      )
+
+      if (response.success && response.data) {
+        setCampaign(response.data)
+      } else {
+        setError(response.error || 'Failed to fetch campaign')
+        setCampaign(null)
+      }
+    } catch (err: any) {
+      setError(err.message || 'Unknown error occurred')
+      setCampaign(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (campaignId) {
+      fetchCampaign()
+    }
+  }, [campaignId])
+
+  return {
+    campaign,
+    loading,
+    error,
+    refetch: fetchCampaign
+  }
+}
+
+// Hook for campaign applications
+export function useCampaignApplications(campaignId?: string) {
+  const [applications, setApplications] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchApplications = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const endpoint = campaignId 
+        ? `/api/v1/applications/campaign/${campaignId}`
+        : '/api/v1/applications'
+
+      const response: ApiResponse<any[]> = await campaignServiceClient.get(endpoint)
+
+      if (response.success && response.data) {
+        setApplications(response.data)
+      } else {
+        setError(response.error || 'Failed to fetch applications')
+        setApplications([])
+      }
+    } catch (err: any) {
+      setError(err.message || 'Unknown error occurred')
+      setApplications([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchApplications()
+  }, [campaignId])
+
+  return {
+    applications,
+    loading,
+    error,
+    refetch: fetchApplications
+  }
+}
+
+// Hook for creator's campaigns
+export function useCreatorCampaigns() {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchCreatorCampaigns = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // This endpoint should return campaigns the creator is part of
+      const response: ApiResponse<Campaign[]> = await campaignServiceClient.get(
+        '/api/v1/campaigns/my-campaigns'
+      )
+
+      if (response.success && response.data) {
+        setCampaigns(response.data)
+      } else {
+        setError(response.error || 'Failed to fetch your campaigns')
+        setCampaigns([])
+      }
+    } catch (err: any) {
+      setError(err.message || 'Unknown error occurred')
+      setCampaigns([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchCreatorCampaigns()
+  }, [])
+
+  return {
+    campaigns,
+    loading,
+    error,
+    refetch: fetchCreatorCampaigns
   }
 }
