@@ -28,12 +28,21 @@ export interface Campaign {
   updated_at: string
 }
 
+interface CampaignListResponse {
+  campaigns: Campaign[]
+  total: number
+  limit: number
+  offset: number
+}
+
+
 // Main hook for fetching campaigns
 export function useCampaigns(
   status?: string,
   limit: number = 20,
   offset: number = 0
 ) {
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -114,31 +123,71 @@ export function useCampaigns(
 }
 
 // Hook for fetching a single campaign
-export function useCampaign(campaignId: string | null) {
+export function useCampaign(
+  status?: string,
+  limit: number = 20,
+  offset: number = 0
+) 
+{
+
   const [campaign, setCampaign] = useState<Campaign | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchCampaign = async () => {
-    if (!campaignId) return
-
+  const fetchCampaigns = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      const response: ApiResponse<Campaign> = await campaignServiceClient.get(
-        `/api/v1/campaigns/${campaignId}`
+      console.log('🚀 Fetching campaigns...')
+      console.log('Status parameter type:', typeof status)
+      console.log('Status parameter value:', status)
+
+      // Build params object - ensure proper types
+      const params: Record<string, string | number> = { 
+        limit, 
+        offset 
+      }
+      
+      // Only add status if it's a non-empty string and not 'all'
+      if (status && typeof status === 'string' && status !== 'all') {
+        params.status = status
+      }
+
+      console.log('📋 Request params:', params)
+
+      // Use the correct endpoint
+      const response: ApiResponse<CampaignListResponse | Campaign[]> = await campaignServiceClient.get(
+        '/api/v1/campaigns',
+        params
       )
 
+      console.log('📡 Campaigns response:', response)
+
       if (response.success && response.data) {
-        setCampaign(response.data)
+        // Handle both response formats
+        let campaignData: Campaign[] = []
+        
+        if (Array.isArray(response.data)) {
+          // Direct array response
+          campaignData = response.data
+        } else if ('campaigns' in response.data) {
+          // CampaignListResponse format
+          campaignData = response.data.campaigns
+        }
+        
+        console.log('✅ Successfully fetched campaigns:', campaignData)
+        setCampaigns(campaignData)
       } else {
-        setError(response.error || 'Failed to fetch campaign')
-        setCampaign(null)
+        const errorMsg = response.error || 'Failed to fetch campaigns'
+        console.error('❌ Campaigns fetch failed:', errorMsg)
+        setError(errorMsg)
+        setCampaigns([])
       }
     } catch (err: any) {
+      console.error("❌ Campaigns fetch error:", err)
       setError(err.message || 'Unknown error occurred')
-      setCampaign(null)
+      setCampaigns([])
     } finally {
       setLoading(false)
     }
@@ -151,10 +200,10 @@ export function useCampaign(campaignId: string | null) {
   }, [campaignId])
 
   return {
-    campaign,
+    campaigns,
     loading,
     error,
-    refetch: fetchCampaign
+    refetch: fetchCampaigns,
   }
 }
 
@@ -242,3 +291,4 @@ export function useCreatorCampaigns() {
     refetch: fetchCreatorCampaigns
   }
 }
+

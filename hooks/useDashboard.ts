@@ -185,7 +185,6 @@ export function useDashboardAnalytics(
   }
 }
 
-// Hook for campaigns
 export function useCampaigns(
   status?: string,
   limit: number = 20,
@@ -200,28 +199,49 @@ export function useCampaigns(
       setLoading(true)
       setError(null)
 
-      console.log('🚀 Fetching campaigns...')
+      console.log('🚀 Fetching campaigns from dashboard...')
 
-      // Build params object
+      // Build params object - ensure proper types
       const params: Record<string, string | number> = { 
         limit, 
         offset 
       }
       
-      if (status) params.status = status
+      // Validate status parameter
+      if (status && typeof status === 'string' && status !== 'all') {
+        params.status = status
+      }
 
       console.log('📋 Request params:', params)
 
-      const response: ApiResponse<Campaign[]> = await campaignServiceClient.get(
+      // Try the dashboard endpoint first, fall back to regular campaigns endpoint
+      let response: ApiResponse<any> = await campaignServiceClient.get(
         '/api/v1/dashboard/campaigns',
         params
       )
 
+      // If dashboard endpoint doesn't exist, try regular campaigns endpoint
+      if (!response.success && response.statusCode === 404) {
+        console.log('Dashboard endpoint not found, trying regular campaigns endpoint...')
+        response = await campaignServiceClient.get('/api/v1/campaigns', params)
+      }
+
       console.log('📡 Campaigns response:', response)
 
       if (response.success && response.data) {
-        console.log('✅ Successfully fetched campaigns:', response.data)
-        setCampaigns(response.data)
+        let campaignData: Campaign[] = []
+        
+        // Handle different response structures
+        if (Array.isArray(response.data)) {
+          campaignData = response.data
+        } else if (response.data.campaigns && Array.isArray(response.data.campaigns)) {
+          campaignData = response.data.campaigns
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          campaignData = response.data.data
+        }
+        
+        console.log('✅ Successfully fetched campaigns:', campaignData)
+        setCampaigns(campaignData)
       } else {
         const errorMsg = response.error || 'Failed to fetch campaigns'
         console.error('❌ Campaigns fetch failed:', errorMsg)
@@ -237,25 +257,6 @@ export function useCampaigns(
     }
   }
 
-  const createCampaign = async (campaignData: Partial<Campaign>) => {
-    try {
-      const response: ApiResponse<Campaign> = await campaignServiceClient.post(
-        '/api/v1/dashboard/campaigns',
-        campaignData
-      )
-
-      if (response.success && response.data) {
-        setCampaigns(prev => [response.data!, ...prev])
-        return response.data
-      } else {
-        throw new Error(response.error || "Failed to create campaign")
-      }
-    } catch (err: any) {
-      setError(err.message)
-      throw err
-    }
-  }
-
   useEffect(() => {
     fetchCampaigns()
   }, [status, limit, offset])
@@ -265,9 +266,9 @@ export function useCampaigns(
     loading,
     error,
     refetch: fetchCampaigns,
-    createCampaign,
   }
 }
+
 
 // Hook for creator performance
 export function useCreatorPerformance(

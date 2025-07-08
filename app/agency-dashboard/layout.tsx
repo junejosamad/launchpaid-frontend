@@ -31,9 +31,9 @@ export default function AgencyDashboardLayout({
         console.log("🔒 User role:", user.role, "- not an agency, redirecting")
         const redirectPath =
           user.role === "creator"
-            ? "/dashboard-creator"
+            ? "/creator-dashboard"
             : user.role === "brand"
-              ? "/dashboard-brand"
+              ? "/client-dashboard"
               : "/dashboard"
         router.push(redirectPath)
       } else {

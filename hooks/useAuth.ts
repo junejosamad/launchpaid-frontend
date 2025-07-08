@@ -39,6 +39,8 @@ export function useAuth() {
 
   // Helper function to store tokens in multiple locations
   const storeTokens = (accessToken: string, refreshToken?: string) => {
+    console.log("💾 Storing tokens in localStorage and sessionStorage")
+    
     // Store in localStorage
     localStorage.setItem("auth_token", accessToken)
     localStorage.setItem("access_token", accessToken)
@@ -51,10 +53,19 @@ export function useAuth() {
       localStorage.setItem("refresh_token", refreshToken)
       sessionStorage.setItem("refresh_token", refreshToken)
     }
+    
+    // Verify storage
+    console.log("✅ Tokens stored verification:", {
+      localStorage_auth: !!localStorage.getItem("auth_token"),
+      localStorage_access: !!localStorage.getItem("access_token"),
+      sessionStorage_auth: !!sessionStorage.getItem("auth_token"),
+      sessionStorage_access: !!sessionStorage.getItem("access_token")
+    })
   }
 
   // Helper function to clear all tokens
   const clearTokens = () => {
+    console.log("🗑️ Clearing all tokens")
     localStorage.removeItem("auth_token")
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
@@ -66,30 +77,46 @@ export function useAuth() {
   // Initialize auth state
   useEffect(() => {
     const initAuth = async () => {
+      console.log("🔐 [useAuth] Initializing auth state...")
+      
       const token = localStorage.getItem("auth_token") || 
                    localStorage.getItem("access_token") ||
                    sessionStorage.getItem("auth_token") ||
                    sessionStorage.getItem("access_token")
-                   
+      
+      console.log("🔍 [useAuth] Token check:", {
+        hasToken: !!token,
+        tokenPreview: token ? token.substring(0, 20) + "..." : null,
+        source: token ? (
+          localStorage.getItem("auth_token") ? "localStorage.auth_token" :
+          localStorage.getItem("access_token") ? "localStorage.access_token" :
+          sessionStorage.getItem("auth_token") ? "sessionStorage.auth_token" :
+          sessionStorage.getItem("access_token") ? "sessionStorage.access_token" : "unknown"
+        ) : "none"
+      })
+      
       if (!token) {
-        setState((prev) => ({ ...prev, isLoading: false }))
+        console.log("❌ [useAuth] No token found, user is not authenticated")
+        setState((prev) => ({ ...prev, isLoading: false, isAuthenticated: false, user: null }))
         return
       }
 
       try {
-        console.log("🔐 Fetching user profile from backend...")
+        console.log("📡 [useAuth] Fetching user profile with token...")
         const response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
-        console.log("📡 Profile API Response:", response)
+        console.log("📡 [useAuth] Profile response:", response)
         
         if (response.success && response.data) {
-          // Check if the response has a nested data structure
-          const userData = response.data.data || response.data
+          // Handle nested data structure
+          const userData = ((response.data && typeof response.data === 'object' && 'data' in response.data) 
+            ? response.data.data 
+            : response.data) as User
           
-          console.log("👤 User data received:", userData)
-          console.log("🎭 User role from backend:", userData.role)
-          console.log("🎭 Alternative role field (userRole):", userData.userRole)
-          console.log("🎭 Alternative role field (type):", userData.type)
-          console.log("🎭 All user fields:", Object.keys(userData))
+          console.log("✅ [useAuth] User authenticated:", {
+            id: userData.id,
+            email: userData.email,
+            role: userData.role
+          })
           
           setState({
             user: userData,
@@ -98,14 +125,29 @@ export function useAuth() {
             error: null,
           })
         } else {
-          console.log("❌ Invalid profile response, clearing tokens")
+          console.log("❌ [useAuth] Invalid profile response, clearing tokens")
           clearTokens()
-          setState((prev) => ({ ...prev, isLoading: false }))
+          setState({
+            user: null,
+            isLoading: false,
+            isAuthenticated: false,
+            error: "Failed to load user profile"
+          })
         }
-      } catch (error) {
-        console.error("❌ Auth initialization error:", error)
-        clearTokens()
-        setState((prev) => ({ ...prev, isLoading: false, error: "Authentication failed" }))
+      } catch (error: any) {
+        console.error("❌ [useAuth] Auth initialization error:", error)
+        
+        // Only clear tokens if it's a 401/403 error
+        if (error.statusCode === 401 || error.statusCode === 403) {
+          clearTokens()
+        }
+        
+        setState({
+          user: null,
+          isLoading: false,
+          isAuthenticated: false,
+          error: "Authentication failed"
+        })
       }
     }
 
@@ -115,6 +157,7 @@ export function useAuth() {
   // Listen for auth expiration events
   useEffect(() => {
     const handleAuthExpired = () => {
+      console.log("⏰ [useAuth] Auth expired event received")
       clearTokens()
       setState({
         user: null,
@@ -129,7 +172,7 @@ export function useAuth() {
       // Sync auth state across tabs
       if (e.key === "auth_token" || e.key === "access_token") {
         if (!e.newValue) {
-          // Token was removed in another tab
+          console.log("🔄 [useAuth] Token removed in another tab")
           setState({
             user: null,
             isLoading: false,
@@ -137,6 +180,9 @@ export function useAuth() {
             error: null,
           })
           router.push("/auth")
+        } else if (e.newValue && !state.isAuthenticated) {
+          console.log("🔄 [useAuth] Token added in another tab, refreshing auth")
+          window.location.reload()
         }
       }
     }
@@ -148,136 +194,82 @@ export function useAuth() {
       window.removeEventListener("auth:expired", handleAuthExpired)
       window.removeEventListener("storage", handleStorageChange)
     }
-  }, [router])
+  }, [router, state.isAuthenticated])
 
-  // Updated login function with better token handling
-  // const login = useCallback(
-  //   async (credentials: LoginCredentials) => {
-  //     setState((prev) => ({ ...prev, isLoading: true, error: null }))
+  // Login function
+  const login = useCallback(
+    async (credentials: LoginCredentials) => {
+      console.log("🚀 [useAuth] Starting login process...")
+      setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
-  //     try {
-  //       const response = await userServiceClient.post<any>(ENDPOINTS.AUTH.LOGIN, credentials)
+      try {
+        const response = await userServiceClient.post<any>(ENDPOINTS.AUTH.LOGIN, credentials)
+        console.log("📡 [useAuth] Login response:", response)
 
-  //       console.log("Login response:", response)
+        if (response.success && response.data) {
+          const responseData = response.data.data || response.data
+          const { user, access_token, refresh_token } = responseData
 
-  //       if (response.success && response.data) {
-  //         // Handle the nested data structure
-  //         const responseData = response.data.data || response.data
-  //         const { user, access_token, refresh_token } = responseData
+          if (!user || !access_token) {
+            throw new Error("Invalid response: missing user or access_token")
+          }
 
-  //         if (!user || !access_token) {
-  //           throw new Error("Invalid response structure from server")
-  //         }
-
-  //         // Store tokens in multiple locations
-  //         storeTokens(access_token, refresh_token)
-
-  //         setState({
-  //           user,
-  //           isLoading: false,
-  //           isAuthenticated: true,
-  //           error: null,
-  //         })
-
-  //         // Redirect based on user role
-  //         const userRole = user.role || user.userRole
-  //         const redirectPath =
-  //           userRole === "creator"
-  //             ? "/dashboard-creator"
-  //             : userRole === "agency"
-  //               ? "/dashboard-agency"
-  //               : userRole === "brand"
-  //                 ? "/dashboard-brand"
-  //                 : "/dashboard"
-
-  //         router.push(redirectPath)
-  //         return { success: true }
-  //       } else {
-  //         const errorMessage = response.error || response.message || "Login failed"
-  //         setState((prev) => ({
-  //           ...prev,
-  //           isLoading: false,
-  //           error: errorMessage,
-  //         }))
-  //         return { success: false, error: errorMessage }
-  //       }
-  //     } catch (error: any) {
-  //       console.error("Login error details:", error)
-  //       const errorMessage = error.message || "Login failed"
-  //       setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
-  //       return { success: false, error: errorMessage }
-  //     }
-  //   },
-  //   [router],
-  // )
-
-  // In useAuth.ts, update the login response handling
-const login = useCallback(
-  async (credentials: LoginCredentials) => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }))
-
-    try {
-      const response = await userServiceClient.post<any>(ENDPOINTS.AUTH.LOGIN, credentials)
-
-      console.log("Login response:", response)
-
-      if (response.success && response.data) {
-        const responseData = response.data.data || response.data
-        const { user, access_token, refresh_token } = responseData
-
-        // Check if we got a JWT token or need to request one
-        if (access_token && access_token.startsWith('eyJ')) {
-          // This is a JWT token
+          // Store tokens immediately
           storeTokens(access_token, refresh_token)
+
+          // Update state with user data
+          setState({
+            user,
+            isLoading: false,
+            isAuthenticated: true,
+            error: null,
+          })
+
+          console.log("✅ [useAuth] Login successful, user authenticated")
+
+          // Determine redirect path based on role
+          const userRole = user.role || user.userRole
+          const redirectPath =
+            userRole === "creator"
+              ? "/creator-dashboard"
+              : userRole === "agency"
+                ? "/agency-dashboard"
+                : userRole === "brand"
+                  ? "/client-dashboard"
+                  : "/dashboard"
+
+          console.log(`🚀 [useAuth] Redirecting to ${redirectPath}`)
+          
+          // Small delay to ensure state updates are processed
+          setTimeout(() => {
+            router.push(redirectPath)
+          }, 100)
+          
+          return { success: true }
         } else {
-          // This is a session token, we might need to exchange it for a JWT
-          console.warn("Received non-JWT token:", access_token)
-          // For now, store it anyway
-          storeTokens(access_token, refresh_token)
+          const errorMessage = response.error || response.message || "Login failed"
+          console.error("❌ [useAuth] Login failed:", errorMessage)
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: errorMessage,
+          }))
+          return { success: false, error: errorMessage }
         }
-
-        setState({
-          user,
-          isLoading: false,
-          isAuthenticated: true,
-          error: null,
-        })
-
-        // Redirect based on user role
-        const userRole = user.role || user.userRole
-        const redirectPath =
-          userRole === "creator"
-            ? "/dashboard-creator"
-            : userRole === "agency"
-              ? "/dashboard-agency"
-              : userRole === "brand"
-                ? "/dashboard-brand"
-                : "/dashboard"
-
-        router.push(redirectPath)
-        return { success: true }
-      } else {
-        const errorMessage = response.error || response.message || "Login failed"
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: errorMessage,
-        }))
+      } catch (error: any) {
+        console.error("❌ [useAuth] Login error:", error)
+        const errorMessage = error.message || "Login failed"
+        setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
         return { success: false, error: errorMessage }
       }
-    } catch (error: any) {
-      console.error("Login error details:", error)
-      const errorMessage = error.message || "Login failed"
-      setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }))
-      return { success: false, error: errorMessage }
-    }
-  },
-  [router],
-)
+    },
+    [router],
+  )
 
-  // Updated register function with better token handling
+  // Register function
   const register = useCallback(
     async (data: RegisterData) => {
+      console.log("🚀 [useAuth] Starting registration process...")
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
       try {
@@ -340,7 +332,7 @@ const login = useCallback(
     [router],
   )
 
-  // Updated verify email function with better token handling
+  // Verify email function
   const verifyEmail = useCallback(
     async (token: string) => {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
@@ -395,6 +387,7 @@ const login = useCallback(
     [router],
   )
 
+  // Resend verification email
   const resendVerification = useCallback(
     async (email: string) => {
       try {
@@ -420,7 +413,9 @@ const login = useCallback(
     [],
   )
 
+  // Logout function
   const logout = useCallback(async () => {
+    console.log("🚪 [useAuth] Logging out...")
     setState((prev) => ({ ...prev, isLoading: true }))
 
     try {
@@ -441,6 +436,7 @@ const login = useCallback(
     }
   }, [router])
 
+  // Update profile function
   const updateProfile = useCallback(
     async (profileData: Partial<User>) => {
       if (!state.user) return { success: false, error: "Not authenticated" }
@@ -474,18 +470,21 @@ const login = useCallback(
     [state.user],
   )
 
+  // Clear error
   const clearError = useCallback(() => {
     setState((prev) => ({ ...prev, error: null }))
   }, [])
 
-  // Helper function to refresh auth state
+  // Refresh auth state
   const refreshAuth = useCallback(async () => {
+    console.log("🔄 [useAuth] Refreshing auth state...")
     const token = localStorage.getItem("auth_token") || 
                  localStorage.getItem("access_token") ||
                  sessionStorage.getItem("auth_token") ||
                  sessionStorage.getItem("access_token")
                  
     if (!token) {
+      console.log("❌ [useAuth] No token found during refresh")
       setState({
         user: null,
         isLoading: false,
@@ -498,9 +497,11 @@ const login = useCallback(
     try {
       const response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
       if (response.success && response.data) {
-        // Handle nested data structure
-        const userData = response.data.data || response.data
-        
+        const userData = ((response.data && typeof response.data === 'object' && 'data' in response.data) 
+          ? response.data.data 
+          : response.data) as User
+          
+        console.log("✅ [useAuth] Auth refreshed successfully")
         setState({
           user: userData,
           isLoading: false,
@@ -508,6 +509,7 @@ const login = useCallback(
           error: null,
         })
       } else {
+        console.log("❌ [useAuth] Failed to refresh auth")
         clearTokens()
         setState({
           user: null,
@@ -517,7 +519,7 @@ const login = useCallback(
         })
       }
     } catch (error) {
-      console.error("Auth refresh error:", error)
+      console.error("❌ [useAuth] Auth refresh error:", error)
       clearTokens()
       setState({
         user: null,

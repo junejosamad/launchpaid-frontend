@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { DateRange } from "react-day-picker"
 import {
   Search,
   Download,
@@ -28,6 +29,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Loader2,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -45,134 +48,69 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { toast } from "@/components/ui/use-toast"
 
-// Mock applications data
-const applications = [
-  {
-    id: 1,
-    creatorName: "Emma Rodriguez",
-    email: "emma@email.com",
-    phone: "+1 (555) 123-4567",
-    discord: "emma_lifestyle#1234",
-    avatar: "/placeholder.svg?height=40&width=40",
-    applicationDate: "2024-01-20",
-    campaignName: "Summer Fashion 2024",
-    campaignId: 1,
-    status: "Pending",
-    direction: "Incoming",
-    totalGMV: 125000,
-    tiktokHandle: "@emmalifestyle",
-    tiktokFollowers: 2400000,
-    instagramHandle: "@emma.lifestyle",
-    instagramFollowers: 1800000,
-    youtubeHandle: "@EmmaLifestyle",
-    youtubeFollowers: 850000,
-    audienceGender: { male: 25, female: 75 },
-    primaryAge: "18-24",
-    profileCompletion: 95,
-    engagementRate: 7.2,
-    consistencyRating: 95,
-    averageRating: 4.9,
-    location: "Los Angeles, CA",
-    age: 24,
-    ethnicity: "Hispanic",
-    niche: "Fashion",
-    shippingAddress: "123 Fashion Ave, LA, CA 90210",
-  },
-  {
-    id: 2,
-    creatorName: "Marcus Chen",
-    email: "marcus@email.com",
-    phone: "+1 (555) 234-5678",
-    discord: "techmarcos#5678",
-    avatar: "/placeholder.svg?height=40&width=40",
-    applicationDate: "2024-01-19",
-    campaignName: "Tech Gadgets Q1",
-    campaignId: 2,
-    status: "Approved",
-    direction: "Incoming",
-    totalGMV: 89000,
-    tiktokHandle: "@techmarcos",
-    tiktokFollowers: 1800000,
-    instagramHandle: "@marcus.tech",
-    instagramFollowers: 950000,
-    youtubeHandle: null,
-    youtubeFollowers: 0,
-    audienceGender: { male: 65, female: 35 },
-    primaryAge: "25-34",
-    profileCompletion: 88,
-    engagementRate: 6.8,
-    consistencyRating: 88,
-    averageRating: 4.7,
-    location: "San Francisco, CA",
-    age: 28,
-    ethnicity: "Asian",
-    niche: "Technology",
-    shippingAddress: "456 Tech St, SF, CA 94105",
-  },
-  {
-    id: 3,
-    creatorName: "Sophia Williams",
-    email: "sophia@email.com",
-    phone: "+1 (555) 345-6789",
-    discord: "beautysofia#9012",
-    avatar: "/placeholder.svg?height=40&width=40",
-    applicationDate: "2024-01-18",
-    campaignName: "Beauty Essentials 2024",
-    campaignId: 3,
-    status: "Rejected",
-    direction: "Incoming",
-    totalGMV: 156000,
-    tiktokHandle: "@beautysofia",
-    tiktokFollowers: 3200000,
-    instagramHandle: "@sofia.beauty",
-    instagramFollowers: 2100000,
-    youtubeHandle: "@SofiaBeauty",
-    youtubeFollowers: 1200000,
-    audienceGender: { male: 15, female: 85 },
-    primaryAge: "18-24",
-    profileCompletion: 92,
-    engagementRate: 8.1,
-    consistencyRating: 92,
-    averageRating: 4.8,
-    location: "Miami, FL",
-    age: 22,
-    ethnicity: "Mixed",
-    niche: "Beauty",
-    shippingAddress: "789 Beauty Blvd, Miami, FL 33101",
-  },
-]
+// Import our custom hooks
+import {
+  useCampaignApplications,
+  useCampaigns,
+  useReviewApplication,
+  useBulkReviewApplications,
+  useApplicationStats,
+  type Application
+} from "@/hooks/useApplications"
 
-const campaigns = [
-  { id: 1, name: "Summer Fashion 2024", status: "Active" },
-  { id: 2, name: "Tech Gadgets Q1", status: "Active" },
-  { id: 3, name: "Beauty Essentials 2024", status: "Active" },
-  { id: 4, name: "Fitness Revolution", status: "Upcoming" },
-]
-
-const statusOptions = ["All", "Pending", "Approved", "Rejected", "Incoming", "Outgoing"]
+const statusOptions = ["All", "pending", "approved", "rejected"]
 
 export default function CreatorApplications() {
+  // State management
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("All")
   const [campaignFilter, setCampaignFilter] = useState("All Campaigns")
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>("")
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({})
   const [showFilters, setShowFilters] = useState(false)
-  const [selectedApplications, setSelectedApplications] = useState<number[]>([])
-  const [selectedApplication, setSelectedApplication] = useState<any>(null)
+  const [selectedApplications, setSelectedApplications] = useState<string[]>([])
+  const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inviteEmails, setInviteEmails] = useState("")
   const [selectedCampaignForInvite, setSelectedCampaignForInvite] = useState("")
 
-  const formatNumber = (num: number) => {
+  // API hooks
+  const { data: campaigns = [], isLoading: campaignsLoading } = useCampaigns()
+  const { data: stats, isLoading: statsLoading } = useApplicationStats()
+  
+  // Get applications for the selected campaign
+  const { 
+    data: applications = [], 
+    isLoading: applicationsLoading, 
+    refetch: refetchApplications,
+    error: applicationsError 
+  } = useCampaignApplications(selectedCampaignId, {
+    status: statusFilter === "All" ? undefined : statusFilter,
+    search: searchQuery,
+  })
+
+  // Mutations
+  const reviewMutation = useReviewApplication()
+  const bulkReviewMutation = useBulkReviewApplications()
+
+  // Set default campaign if available
+  useEffect(() => {
+    if (campaigns.length > 0 && !selectedCampaignId) {
+      setSelectedCampaignId(campaigns[0].id)
+    }
+  }, [campaigns, selectedCampaignId])
+
+  // Utility functions
+  const formatNumber = (num: number): string => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
     return num.toString()
   }
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number): string => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -181,13 +119,13 @@ export default function CreatorApplications() {
     }).format(amount)
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): string => {
     switch (status) {
-      case "Pending":
+      case "pending":
         return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-      case "Approved":
+      case "approved":
         return "bg-green-500/20 text-green-400 border-green-500/30"
-      case "Rejected":
+      case "rejected":
         return "bg-red-500/20 text-red-400 border-red-500/30"
       default:
         return "bg-gray-500/20 text-gray-400 border-gray-500/30"
@@ -196,30 +134,36 @@ export default function CreatorApplications() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "Pending":
+      case "pending":
         return <Clock className="h-3 w-3" />
-      case "Approved":
+      case "approved":
         return <CheckCircle className="h-3 w-3" />
-      case "Rejected":
+      case "rejected":
         return <XCircle className="h-3 w-3" />
       default:
         return <AlertCircle className="h-3 w-3" />
     }
   }
 
+  // Filter applications
   const filteredApplications = useMemo(() => {
+    if (!applications) return []
+    
     return applications.filter((app) => {
-      const matchesSearch =
-        app.creatorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        app.email.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesSearch = !searchQuery || 
+        app.creator?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.creator?.last_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.creator?.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        app.creator?.email?.toLowerCase().includes(searchQuery.toLowerCase())
 
-      const matchesStatus = statusFilter === "All" || app.status === statusFilter
-      const matchesCampaign = campaignFilter === "All Campaigns" || app.campaignName === campaignFilter
+      const matchesCampaign = campaignFilter === "All Campaigns" || 
+        app.campaign?.name === campaignFilter
 
-      return matchesSearch && matchesStatus && matchesCampaign
+      return matchesSearch && matchesCampaign
     })
-  }, [searchQuery, statusFilter, campaignFilter, applications])
+  }, [applications, searchQuery, campaignFilter])
 
+  // Event handlers
   const handleSelectAll = () => {
     if (selectedApplications.length === filteredApplications.length) {
       setSelectedApplications([])
@@ -228,30 +172,98 @@ export default function CreatorApplications() {
     }
   }
 
-  const handleSelectApplication = (id: number) => {
-    setSelectedApplications((prev) => (prev.includes(id) ? prev.filter((appId) => appId !== id) : [...prev, id]))
+  const handleSelectApplication = (id: string) => {
+    setSelectedApplications((prev) => 
+      prev.includes(id) ? prev.filter((appId) => appId !== id) : [...prev, id]
+    )
   }
 
-  const handleBulkApprove = () => {
-    console.log("Bulk approving applications:", selectedApplications)
-    setSelectedApplications([])
+  const handleBulkApprove = async () => {
+    try {
+      await bulkReviewMutation.mutateAsync({
+        applicationIds: selectedApplications,
+        action: 'approved',
+        notes: 'Bulk approved'
+      })
+      setSelectedApplications([])
+      toast({
+        title: "Success",
+        description: `${selectedApplications.length} applications approved`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to approve applications",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleBulkReject = () => {
-    console.log("Bulk rejecting applications:", selectedApplications)
-    setSelectedApplications([])
+  const handleBulkReject = async () => {
+    try {
+      await bulkReviewMutation.mutateAsync({
+        applicationIds: selectedApplications,
+        action: 'rejected',
+        notes: 'Bulk rejected'
+      })
+      setSelectedApplications([])
+      toast({
+        title: "Success",
+        description: `${selectedApplications.length} applications rejected`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject applications",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleApproveApplication = (id: number) => {
-    console.log("Approving application:", id)
+  const handleApproveApplication = async (id: string) => {
+    try {
+      await reviewMutation.mutateAsync({
+        applicationId: id,
+        reviewData: { status: 'approved' }
+      })
+      toast({
+        title: "Success",
+        description: "Application approved",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to approve application",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleRejectApplication = (id: number) => {
-    console.log("Rejecting application:", id)
+  const handleRejectApplication = async (id: string) => {
+    try {
+      await reviewMutation.mutateAsync({
+        applicationId: id,
+        reviewData: { status: 'rejected' }
+      })
+      toast({
+        title: "Success",
+        description: "Application rejected",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reject application",
+        variant: "destructive",
+      })
+    }
   }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
+    toast({
+      title: "Copied",
+      description: "Text copied to clipboard",
+    })
   }
 
   const handleSendInvites = () => {
@@ -263,14 +275,52 @@ export default function CreatorApplications() {
     setShowInviteModal(false)
     setInviteEmails("")
     setSelectedCampaignForInvite("")
+    toast({
+      title: "Success",
+      description: `Invites sent to ${emails.length} creators`,
+    })
   }
 
-  // Statistics
-  const totalApplications = applications.length
-  const pendingApplications = applications.filter((app) => app.status === "Pending").length
-  const approvalRate = Math.round(
-    (applications.filter((app) => app.status === "Approved").length / totalApplications) * 100,
-  )
+  // Calculate statistics
+  const totalApplications = applications?.length || 0
+  const pendingApplications = applications?.filter((app) => app.status === "pending").length || 0
+  const approvedApplications = applications?.filter((app) => app.status === "approved").length || 0
+  const approvalRate = totalApplications > 0 
+    ? Math.round((approvedApplications / totalApplications) * 100)
+    : 0
+
+  // Loading state
+  if (campaignsLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Loading campaigns...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (applicationsError) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-red-400 mb-2">Error Loading Applications</h3>
+          <p className="text-gray-400 mb-4">Failed to load applications. Please try again.</p>
+          <Button 
+            onClick={() => refetchApplications()}
+            variant="outline"
+            className="border-gray-700 bg-gray-800 hover:bg-gray-700"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -294,7 +344,12 @@ export default function CreatorApplications() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h1 className="text-3xl font-bold text-white">Applications</h1>
-                <p className="text-gray-400 mt-1">{filteredApplications.length} applications to review</p>
+                <p className="text-gray-400 mt-1">
+                  {applicationsLoading 
+                    ? "Loading applications..." 
+                    : `${filteredApplications.length} applications to review`
+                  }
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <Button variant="outline" size="sm" className="border-gray-700 bg-gray-800 hover:bg-gray-700">
@@ -323,7 +378,13 @@ export default function CreatorApplications() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-400">Total Applications</p>
-                      <p className="text-2xl font-bold text-white">{totalApplications}</p>
+                      <p className="text-2xl font-bold text-white">
+                        {applicationsLoading ? (
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        ) : (
+                          totalApplications
+                        )}
+                      </p>
                     </div>
                     <Users className="h-8 w-8 text-purple-400" />
                   </div>
@@ -334,7 +395,13 @@ export default function CreatorApplications() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-400">Pending Review</p>
-                      <p className="text-2xl font-bold text-yellow-400">{pendingApplications}</p>
+                      <p className="text-2xl font-bold text-yellow-400">
+                        {applicationsLoading ? (
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        ) : (
+                          pendingApplications
+                        )}
+                      </p>
                     </div>
                     <Clock className="h-8 w-8 text-yellow-400" />
                   </div>
@@ -345,7 +412,13 @@ export default function CreatorApplications() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-gray-400">Approval Rate</p>
-                      <p className="text-2xl font-bold text-green-400">{approvalRate}%</p>
+                      <p className="text-2xl font-bold text-green-400">
+                        {applicationsLoading ? (
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        ) : (
+                          `${approvalRate}%`
+                        )}
+                      </p>
                     </div>
                     <TrendingUp className="h-8 w-8 text-green-400" />
                   </div>
@@ -383,22 +456,25 @@ export default function CreatorApplications() {
                 <SelectContent className="bg-gray-800 border-gray-700">
                   {statusOptions.map((status) => (
                     <SelectItem key={status} value={status} className="text-gray-300 hover:text-white">
-                      {status}
+                      {status === "All" ? "All Status" : status.charAt(0).toUpperCase() + status.slice(1)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
 
-              <Select value={campaignFilter} onValueChange={setCampaignFilter}>
+              <Select 
+                value={selectedCampaignId} 
+                onValueChange={(value) => {
+                  setSelectedCampaignId(value)
+                  setCampaignFilter(campaigns.find(c => c.id === value)?.name || "All Campaigns")
+                }}
+              >
                 <SelectTrigger className="w-48 bg-gray-800 border-gray-700">
-                  <SelectValue />
+                  <SelectValue placeholder="Select Campaign" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-800 border-gray-700">
-                  <SelectItem value="All Campaigns" className="text-gray-300 hover:text-white">
-                    All Campaigns
-                  </SelectItem>
                   {campaigns.map((campaign) => (
-                    <SelectItem key={campaign.id} value={campaign.name} className="text-gray-300 hover:text-white">
+                    <SelectItem key={campaign.id} value={campaign.id} className="text-gray-300 hover:text-white">
                       {campaign.name}
                     </SelectItem>
                   ))}
@@ -409,16 +485,60 @@ export default function CreatorApplications() {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="border-gray-700 bg-gray-800 hover:bg-gray-700">
                     <Calendar className="h-4 w-4 mr-2" />
-                    Date Range
+                    {dateRange?.from ? (
+                      dateRange.to ? (
+                        <>
+                          {dateRange.from.toLocaleDateString()} - {dateRange.to.toLocaleDateString()}
+                        </>
+                      ) : (
+                        dateRange.from.toLocaleDateString()
+                      )
+                    ) : (
+                      "Date Range"
+                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0 bg-gray-800 border-gray-700" align="start">
-                  <CalendarComponent
-                    mode="range"
-                    selected={dateRange}
-                    onSelect={setDateRange}
-                    className="rounded-md border-0"
-                  />
+                  <div className="p-3">
+                    <div className="grid gap-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-sm font-medium text-gray-300">From</label>
+                          <Input
+                            type="date"
+                            className="bg-gray-700 border-gray-600 text-white"
+                            value={dateRange?.from ? dateRange.from.toISOString().split('T')[0] : ''}
+                            onChange={(e) => {
+                              const date = e.target.value ? new Date(e.target.value) : undefined
+                              setDateRange(prev => ({ ...prev, from: date }))
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-300">To</label>
+                          <Input
+                            type="date"
+                            className="bg-gray-700 border-gray-600 text-white"
+                            value={dateRange?.to ? dateRange.to.toISOString().split('T')[0] : ''}
+                            onChange={(e) => {
+                              const date = e.target.value ? new Date(e.target.value) : undefined
+                              setDateRange(prev => ({ ...prev, to: date }))
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="border-gray-600"
+                          onClick={() => setDateRange(undefined)}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </PopoverContent>
               </Popover>
 
@@ -479,12 +599,30 @@ export default function CreatorApplications() {
                     <span className="text-purple-400 font-medium">
                       {selectedApplications.length} applications selected
                     </span>
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleBulkApprove}>
-                      <Check className="h-4 w-4 mr-2" />
+                    <Button 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700" 
+                      onClick={handleBulkApprove}
+                      disabled={bulkReviewMutation.isPending}
+                    >
+                      {bulkReviewMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4 mr-2" />
+                      )}
                       Bulk Approve
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={handleBulkReject}>
-                      <X className="h-4 w-4 mr-2" />
+                    <Button 
+                      size="sm" 
+                      variant="destructive" 
+                      onClick={handleBulkReject}
+                      disabled={bulkReviewMutation.isPending}
+                    >
+                      {bulkReviewMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <X className="h-4 w-4 mr-2" />
+                      )}
                       Bulk Reject
                     </Button>
                     <Button size="sm" variant="outline" className="border-gray-700 bg-gray-800 hover:bg-gray-700">
@@ -509,164 +647,202 @@ export default function CreatorApplications() {
         {/* Applications Table */}
         <div className="p-6">
           <Card className="bg-gray-900 border-gray-800">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-gray-800 hover:bg-gray-800/50">
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={selectedApplications.length === filteredApplications.length}
-                      onCheckedChange={handleSelectAll}
-                    />
-                  </TableHead>
-                  <TableHead className="text-gray-400">Creator Info</TableHead>
-                  <TableHead className="text-gray-400">Campaign</TableHead>
-                  <TableHead className="text-gray-400">Creator Metrics</TableHead>
-                  <TableHead className="text-gray-400">Audience</TableHead>
-                  <TableHead className="text-gray-400">Status</TableHead>
-                  <TableHead className="text-gray-400">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredApplications.map((application) => (
-                  <TableRow key={application.id} className="border-gray-800 hover:bg-gray-800/50">
-                    <TableCell>
+            {applicationsLoading ? (
+              <div className="p-8 text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-purple-400" />
+                <p className="text-gray-400">Loading applications...</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-gray-800 hover:bg-gray-800/50">
+                    <TableHead className="w-12">
                       <Checkbox
-                        checked={selectedApplications.includes(application.id)}
-                        onCheckedChange={() => handleSelectApplication(application.id)}
+                        checked={selectedApplications.length === filteredApplications.length}
+                        onCheckedChange={handleSelectAll}
                       />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={application.avatar || "/placeholder.svg"} alt={application.creatorName} />
-                          <AvatarFallback className="bg-gray-800 text-white text-sm">
-                            {application.creatorName
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
+                    </TableHead>
+                    <TableHead className="text-gray-400">Creator Info</TableHead>
+                    <TableHead className="text-gray-400">Campaign</TableHead>
+                    <TableHead className="text-gray-400">Creator Metrics</TableHead>
+                    <TableHead className="text-gray-400">Audience</TableHead>
+                    <TableHead className="text-gray-400">Status</TableHead>
+                    <TableHead className="text-gray-400">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredApplications.map((application) => (
+                    <TableRow key={application.id} className="border-gray-800 hover:bg-gray-800/50">
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedApplications.includes(application.id)}
+                          onCheckedChange={() => handleSelectApplication(application.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-10 w-10">
+                            <AvatarImage 
+                              src={application.creator?.avatar || "/placeholder.svg"} 
+                              alt={`${application.creator?.first_name} ${application.creator?.last_name}`} 
+                            />
+                            <AvatarFallback className="bg-gray-800 text-white text-sm">
+                              {(application.creator?.first_name?.[0] || '') + (application.creator?.last_name?.[0] || '')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <button
+                              className="font-semibold text-white hover:text-purple-400 transition-colors underline"
+                              onClick={() => setSelectedApplication(application)}
+                            >
+                              {application.creator?.first_name} {application.creator?.last_name}
+                            </button>
+                            <p className="text-xs text-gray-400">
+                              {new Date(application.applied_at).toLocaleDateString()}
+                            </p>
+                            {application.creator?.profile_completion && application.creator.profile_completion < 100 && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <AlertCircle className="h-3 w-3 text-yellow-400" />
+                                <span className="text-xs text-yellow-400">
+                                  Profile {application.creator.profile_completion}% complete
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <div>
-                          <button
-                            className="font-semibold text-white hover:text-purple-400 transition-colors underline"
-                            onClick={() => setSelectedApplication(application)}
-                          >
-                            {application.creatorName}
+                          <button className="font-medium text-purple-400 hover:text-purple-300 underline">
+                            {application.campaign?.name}
                           </button>
-                          <p className="text-xs text-gray-400">{application.applicationDate}</p>
-                          {application.profileCompletion < 100 && (
-                            <div className="flex items-center gap-1 mt-1">
-                              <AlertCircle className="h-3 w-3 text-yellow-400" />
-                              <span className="text-xs text-yellow-400">
-                                Profile {application.profileCompletion}% complete
-                              </span>
+                          <p className="text-xs text-gray-400">
+                            Status: {application.campaign?.status}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Previous GMV:</span>
+                            <span className="text-green-400 font-semibold">
+                              {application.previous_gmv ? formatCurrency(application.previous_gmv) : 'N/A'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">TikTok:</span>
+                            <span className="text-white">
+                              {application.creator?.tiktok_handle || 'N/A'} 
+                              {application.creator?.tiktok_followers && ` (${formatNumber(application.creator.tiktok_followers)})`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Instagram:</span>
+                            <span className="text-white">
+                              {application.creator?.instagram_handle || 'N/A'}
+                              {application.creator?.instagram_followers && ` (${formatNumber(application.creator.instagram_followers)})`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Engagement:</span>
+                            <span className="text-white">
+                              {application.engagement_rate ? `${application.engagement_rate}%` : 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          {application.creator?.audience_gender && (
+                            <div className="flex items-center gap-2">
+                              <User className="h-3 w-3 text-blue-400" />
+                              <span className="text-white">{application.creator.audience_gender.male}%</span>
+                              <Users className="h-3 w-3 text-pink-400" />
+                              <span className="text-white">{application.creator.audience_gender.female}%</span>
+                            </div>
+                          )}
+                          {application.creator?.primary_age && (
+                            <div>
+                              <span className="text-gray-400">Primary: </span>
+                              <span className="text-white">{application.creator.primary_age}</span>
                             </div>
                           )}
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <button className="font-medium text-purple-400 hover:text-purple-300 underline">
-                          {application.campaignName}
-                        </button>
-                        <p className="text-xs text-gray-400">GMV Tier: Premium</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Total GMV:</span>
-                          <span className="text-green-400 font-semibold">{formatCurrency(application.totalGMV)}</span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-2">
+                          <Badge className={getStatusColor(application.status)}>
+                            {getStatusIcon(application.status)}
+                            <span className="ml-1 capitalize">{application.status}</span>
+                          </Badge>
+                          <Badge variant="outline" className="text-xs border-gray-700 text-gray-300">
+                            Application
+                          </Badge>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">TikTok:</span>
-                          <span className="text-white">
-                            {application.tiktokHandle} ({formatNumber(application.tiktokFollowers)})
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Discord:</span>
-                          <span className="text-white">{application.discord || "N/A"}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-400">Instagram:</span>
-                          <span className="text-white">{application.instagramHandle || "N/A"}</span>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-2">
-                          <User className="h-3 w-3 text-blue-400" />
-                          <span className="text-white">{application.audienceGender.male}%</span>
-                          <Users className="h-3 w-3 text-pink-400" />
-                          <span className="text-white">{application.audienceGender.female}%</span>
+                          {application.status === "pending" && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleApproveApplication(application.id)}
+                                disabled={reviewMutation.isPending}
+                              >
+                                {reviewMutation.isPending ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Check className="h-3 w-3" />
+                                )}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleRejectApplication(application.id)}
+                                disabled={reviewMutation.isPending}
+                              >
+                                {reviewMutation.isPending ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <X className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-gray-700 bg-gray-800 hover:bg-gray-700"
+                            onClick={() => setSelectedApplication(application)}
+                          >
+                            <Eye className="h-3 w-3" />
+                          </Button>
+                          <Button size="sm" variant="outline" className="border-gray-700 bg-gray-800 hover:bg-gray-700">
+                            <MessageSquare className="h-3 w-3" />
+                          </Button>
                         </div>
-                        <div>
-                          <span className="text-gray-400">Primary: </span>
-                          <span className="text-white">{application.primaryAge}</span>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-2">
-                        <Badge className={getStatusColor(application.status)}>
-                          {getStatusIcon(application.status)}
-                          <span className="ml-1">{application.status}</span>
-                        </Badge>
-                        <Badge variant="outline" className="text-xs border-gray-700 text-gray-300">
-                          {application.direction}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {application.status === "Pending" && (
-                          <>
-                            <Button
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleApproveApplication(application.id)}
-                            >
-                              <Check className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleRejectApplication(application.id)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-gray-700 bg-gray-800 hover:bg-gray-700"
-                          onClick={() => setSelectedApplication(application)}
-                        >
-                          <Eye className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="outline" className="border-gray-700 bg-gray-800 hover:bg-gray-700">
-                          <MessageSquare className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
 
-          {/* No Results */}
-          {filteredApplications.length === 0 && (
-            <div className="text-center py-12">
-              <Users className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-400 mb-2">No applications found</h3>
-              <p className="text-gray-500">Try adjusting your search or filters to find applications.</p>
-            </div>
-          )}
+            {/* No Results */}
+            {!applicationsLoading && filteredApplications.length === 0 && (
+              <div className="text-center py-12">
+                <Users className="h-12 w-12 text-gray-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-400 mb-2">No applications found</h3>
+                <p className="text-gray-500">
+                  {!selectedCampaignId 
+                    ? "Please select a campaign to view applications."
+                    : "Try adjusting your search or filters to find applications."
+                  }
+                </p>
+              </div>
+            )}
+          </Card>
         </div>
 
         {/* Creator Profile Review Modal */}
@@ -678,13 +854,13 @@ export default function CreatorApplications() {
                   <div>
                     <DialogTitle className="text-2xl text-white">Application Review</DialogTitle>
                     <DialogDescription className="text-gray-400">
-                      {selectedApplication.creatorName} applied for {selectedApplication.campaignName}
+                      {selectedApplication.creator?.first_name} {selectedApplication.creator?.last_name} applied for {selectedApplication.campaign?.name}
                     </DialogDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge className={getStatusColor(selectedApplication.status)}>
                       {getStatusIcon(selectedApplication.status)}
-                      <span className="ml-1">{selectedApplication.status}</span>
+                      <span className="ml-1 capitalize">{selectedApplication.status}</span>
                     </Badge>
                   </div>
                 </div>
@@ -696,64 +872,72 @@ export default function CreatorApplications() {
                 <div className="flex items-start gap-6 p-6 bg-gray-800 rounded-lg">
                   <Avatar className="h-20 w-20">
                     <AvatarImage
-                      src={selectedApplication.avatar || "/placeholder.svg"}
-                      alt={selectedApplication.creatorName}
+                      src={selectedApplication.creator?.avatar || "/placeholder.svg"}
+                      alt={`${selectedApplication.creator?.first_name} ${selectedApplication.creator?.last_name}`}
                     />
                     <AvatarFallback className="bg-gray-700 text-white text-xl">
-                      {selectedApplication.creatorName
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
+                      {(selectedApplication.creator?.first_name?.[0] || '') + (selectedApplication.creator?.last_name?.[0] || '')}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
-                    <h3 className="text-2xl font-bold text-white">{selectedApplication.creatorName}</h3>
+                    <h3 className="text-2xl font-bold text-white">
+                      {selectedApplication.creator?.first_name} {selectedApplication.creator?.last_name}
+                    </h3>
                     <div className="flex items-center gap-4 mt-2 text-sm text-gray-400">
-                      <div className="flex items-center gap-1">
-                        <Mail className="h-4 w-4" />
-                        <span>{selectedApplication.email}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-4 w-4 p-0"
-                          onClick={() => copyToClipboard(selectedApplication.email)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Phone className="h-4 w-4" />
-                        <span>{selectedApplication.phone}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-4 w-4 p-0"
-                          onClick={() => copyToClipboard(selectedApplication.phone)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      {selectedApplication.creator?.email && (
+                        <div className="flex items-center gap-1">
+                          <Mail className="h-4 w-4" />
+                          <span>{selectedApplication.creator.email}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-4 w-4 p-0"
+                            onClick={() => copyToClipboard(selectedApplication.creator!.email!)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                      {selectedApplication.creator?.phone && (
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-4 w-4" />
+                          <span>{selectedApplication.creator.phone}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-4 w-4 p-0"
+                            onClick={() => copyToClipboard(selectedApplication.creator!.phone!)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm text-gray-400">Profile Completion:</span>
-                        <span className="text-white font-semibold">{selectedApplication.profileCompletion}%</span>
+                    {selectedApplication.creator?.profile_completion && (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm text-gray-400">Profile Completion:</span>
+                          <span className="text-white font-semibold">{selectedApplication.creator.profile_completion}%</span>
+                        </div>
+                        <Progress value={selectedApplication.creator.profile_completion} className="h-2" />
                       </div>
-                      <Progress value={selectedApplication.profileCompletion} className="h-2" />
-                    </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Quick Stats Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <Card className="bg-gray-800 border-gray-700">
                     <CardContent className="p-4 text-center">
                       <div className="text-xl font-bold text-white">
-                        {formatNumber(
-                          selectedApplication.tiktokFollowers +
-                            selectedApplication.instagramFollowers +
-                            selectedApplication.youtubeFollowers,
-                        )}
+                        {selectedApplication.creator?.total_followers ? 
+                          formatNumber(selectedApplication.creator.total_followers) : 
+                          formatNumber(
+                            (selectedApplication.creator?.tiktok_followers || 0) +
+                            (selectedApplication.creator?.instagram_followers || 0) +
+                            (selectedApplication.creator?.youtube_followers || 0)
+                          )
+                        }
                       </div>
                       <div className="text-xs text-gray-400">Total Followers</div>
                     </CardContent>
@@ -761,212 +945,70 @@ export default function CreatorApplications() {
                   <Card className="bg-gray-800 border-gray-700">
                     <CardContent className="p-4 text-center">
                       <div className="text-xl font-bold text-green-400">
-                        {formatCurrency(selectedApplication.totalGMV)}
+                        {selectedApplication.previous_gmv ? 
+                          formatCurrency(selectedApplication.previous_gmv) : 
+                          'N/A'
+                        }
                       </div>
-                      <div className="text-xs text-gray-400">Historical GMV</div>
+                      <div className="text-xs text-gray-400">Previous GMV</div>
                     </CardContent>
                   </Card>
                   <Card className="bg-gray-800 border-gray-700">
                     <CardContent className="p-4 text-center">
-                      <div className="text-xl font-bold text-blue-400">{selectedApplication.engagementRate}%</div>
+                      <div className="text-xl font-bold text-blue-400">
+                        {selectedApplication.engagement_rate ? `${selectedApplication.engagement_rate}%` : 'N/A'}
+                      </div>
                       <div className="text-xs text-gray-400">Engagement Rate</div>
                     </CardContent>
                   </Card>
                   <Card className="bg-gray-800 border-gray-700">
                     <CardContent className="p-4 text-center">
-                      <div className="text-xl font-bold text-yellow-400">{selectedApplication.consistencyRating}%</div>
-                      <div className="text-xs text-gray-400">Consistency</div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gray-800 border-gray-700">
-                    <CardContent className="p-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="text-xl font-bold text-white">{selectedApplication.averageRating}</span>
+                      <div className="text-xl font-bold text-purple-400">
+                        {new Date(selectedApplication.applied_at).toLocaleDateString()}
                       </div>
-                      <div className="text-xs text-gray-400">Average Rating</div>
+                      <div className="text-xs text-gray-400">Applied Date</div>
                     </CardContent>
                   </Card>
                 </div>
 
-                {/* Detailed Information Tabs */}
-                <Tabs defaultValue="demographics" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 bg-gray-800">
-                    <TabsTrigger value="demographics" className="data-[state=active]:bg-purple-600">
-                      Demographics
-                    </TabsTrigger>
-                    <TabsTrigger value="performance" className="data-[state=active]:bg-purple-600">
-                      Performance
-                    </TabsTrigger>
-                    <TabsTrigger value="contact" className="data-[state=active]:bg-purple-600">
-                      Contact & Logistics
-                    </TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="demographics" className="space-y-4 mt-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <Card className="bg-gray-800 border-gray-700">
-                        <CardHeader>
-                          <CardTitle className="text-white">Creator Demographics</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Age</span>
-                            <span className="text-white">{selectedApplication.age} years old</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Location</span>
-                            <span className="text-white">{selectedApplication.location}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Ethnicity</span>
-                            <span className="text-white">{selectedApplication.ethnicity}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Content Niche</span>
-                            <span className="text-white">{selectedApplication.niche}</span>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="bg-gray-800 border-gray-700">
-                        <CardHeader>
-                          <CardTitle className="text-white">Audience Breakdown</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Gender Split</h4>
-                            <div className="space-y-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-300">Female</span>
-                                <span className="text-white">{selectedApplication.audienceGender.female}%</span>
-                              </div>
-                              <Progress value={selectedApplication.audienceGender.female} className="h-2" />
-                              <div className="flex justify-between items-center">
-                                <span className="text-gray-300">Male</span>
-                                <span className="text-white">{selectedApplication.audienceGender.male}%</span>
-                              </div>
-                              <Progress value={selectedApplication.audienceGender.male} className="h-2" />
-                            </div>
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-medium text-gray-400 mb-2">Primary Age Group</h4>
-                            <div className="text-white font-semibold">{selectedApplication.primaryAge}</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="performance" className="space-y-4 mt-6">
-                    <Card className="bg-gray-800 border-gray-700">
-                      <CardHeader>
-                        <CardTitle className="text-white">Performance Metrics</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-green-400">
-                              {formatCurrency(selectedApplication.totalGMV)}
-                            </div>
-                            <div className="text-sm text-gray-400">Total GMV</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-blue-400">
-                              {selectedApplication.engagementRate}%
-                            </div>
-                            <div className="text-sm text-gray-400">Engagement Rate</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-yellow-400">
-                              {selectedApplication.consistencyRating}%
-                            </div>
-                            <div className="text-sm text-gray-400">Consistency</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
-                              <span className="text-2xl font-bold text-white">{selectedApplication.averageRating}</span>
-                            </div>
-                            <div className="text-sm text-gray-400">Average Rating</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="contact" className="space-y-4 mt-6">
-                    <Card className="bg-gray-800 border-gray-700">
-                      <CardHeader>
-                        <CardTitle className="text-white">Contact Information</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Mail className="h-4 w-4 text-gray-400" />
-                                <span className="text-gray-300">{selectedApplication.email}</span>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => copyToClipboard(selectedApplication.email)}
-                              >
-                                <Copy className="h-3 w-3 text-gray-400" />
-                              </Button>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Phone className="h-4 w-4 text-gray-400" />
-                                <span className="text-gray-300">{selectedApplication.phone}</span>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={() => copyToClipboard(selectedApplication.phone)}
-                              >
-                                <Copy className="h-3 w-3 text-gray-400" />
-                              </Button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <MessageSquare className="h-4 w-4 text-gray-400" />
-                              <span className="text-gray-300">{selectedApplication.discord}</span>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex items-start gap-2">
-                              <MapPin className="h-4 w-4 text-gray-400 mt-1" />
-                              <div>
-                                <p className="text-sm text-gray-400">Shipping Address</p>
-                                <p className="text-gray-300">{selectedApplication.shippingAddress}</p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                </Tabs>
+                {/* Application Message */}
+                {selectedApplication.application_message && (
+                  <Card className="bg-gray-800 border-gray-700">
+                    <CardHeader>
+                      <CardTitle className="text-white">Application Message</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-gray-300">{selectedApplication.application_message}</p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Application Decision Panel */}
-                {selectedApplication.status === "Pending" && (
+                {selectedApplication.status === "pending" && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Button
                       className="bg-green-600 hover:bg-green-700 h-12"
                       onClick={() => handleApproveApplication(selectedApplication.id)}
+                      disabled={reviewMutation.isPending}
                     >
-                      <Check className="h-5 w-5 mr-2" />
+                      {reviewMutation.isPending ? (
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                      ) : (
+                        <Check className="h-5 w-5 mr-2" />
+                      )}
                       Accept Application
                     </Button>
                     <Button
                       variant="destructive"
                       className="h-12"
                       onClick={() => handleRejectApplication(selectedApplication.id)}
+                      disabled={reviewMutation.isPending}
                     >
-                      <X className="h-5 w-5 mr-2" />
+                      {reviewMutation.isPending ? (
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                      ) : (
+                        <X className="h-5 w-5 mr-2" />
+                      )}
                       Reject Application
                     </Button>
                     <Button variant="outline" className="border-yellow-500 text-yellow-400 hover:bg-yellow-500/10 h-12">
@@ -974,6 +1016,23 @@ export default function CreatorApplications() {
                       Request More Info
                     </Button>
                   </div>
+                )}
+
+                {/* Review Notes for reviewed applications */}
+                {selectedApplication.status !== "pending" && selectedApplication.review_notes && (
+                  <Card className="bg-gray-800 border-gray-700">
+                    <CardHeader>
+                      <CardTitle className="text-white">Review Notes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-gray-300">{selectedApplication.review_notes}</p>
+                      {selectedApplication.reviewed_at && (
+                        <p className="text-xs text-gray-400 mt-2">
+                          Reviewed on {new Date(selectedApplication.reviewed_at).toLocaleString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
               </div>
             </DialogContent>

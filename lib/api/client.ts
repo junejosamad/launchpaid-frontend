@@ -1,4 +1,4 @@
-// lib/api/client.ts - Complete API Client with Error Handling
+// lib/api/client.ts - Complete API Client with Enhanced Parameter Validation
 
 import { API_CONFIG } from './config'
 
@@ -216,7 +216,7 @@ class ApiClient {
             this.clearAuthTokens()
             // Redirect to login or handle as needed
             if (typeof window !== 'undefined') {
-              window.location.href = '/auth/login'
+              window.location.href = '/auth'
             }
           }
         } else {
@@ -282,15 +282,55 @@ class ApiClient {
     }
   }
 
-  // HTTP method helpers
+  // HTTP method helpers with enhanced parameter validation
   async get<T>(endpoint: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
     let url = endpoint
     
-    if (params) {
+    if (params && Object.keys(params).length > 0) {
       const searchParams = new URLSearchParams()
+      
       Object.entries(params).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          searchParams.append(key, String(value))
+        // Skip null, undefined, or empty string values
+        if (value === null || value === undefined || value === '') {
+          console.log(`⏭️ Skipping empty param: ${key}`)
+          return
+        }
+        
+        // Detect and warn about objects
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          console.error(`🚨 ERROR: Object detected in URL parameter!`)
+          console.error(`Key: ${key}`)
+          console.error(`Value:`, value)
+          console.error(`Type:`, typeof value)
+          console.error(`String representation:`, String(value))
+          console.trace('Stack trace to find the source:')
+          
+          // Skip this parameter to prevent [object Object] in URL
+          return
+        }
+        
+        // Handle arrays properly
+        if (Array.isArray(value)) {
+          value.forEach(v => {
+            if (typeof v === 'object') {
+              console.error(`🚨 ERROR: Object in array for parameter ${key}`)
+              return
+            }
+            searchParams.append(key, String(v))
+          })
+        } else {
+          // Ensure we have a string
+          const stringValue = String(value)
+          
+          // Final check for [object Object]
+          if (stringValue === '[object Object]') {
+            console.error(`🚨 ERROR: [object Object] detected for parameter ${key}!`)
+            console.error(`Original value:`, value)
+            console.trace('Stack trace:')
+            return
+          }
+          
+          searchParams.append(key, stringValue)
         }
       })
       
@@ -298,6 +338,16 @@ class ApiClient {
       if (queryString) {
         url += `?${queryString}`
       }
+    }
+    
+    console.log(`🔗 Final URL: ${url}`)
+    
+    // Additional check for [object Object] in final URL
+    if (url.includes('[object Object]') || url.includes('%5Bobject+Object%5D')) {
+      console.error('🚨 CRITICAL ERROR: [object Object] detected in final URL!')
+      console.error('URL:', url)
+      console.error('Parameters:', params)
+      console.trace('Stack trace to debug:')
     }
     
     return this.makeRequest<T>(url, { method: 'GET' })
@@ -347,7 +397,15 @@ class ApiClient {
   }
 }
 
-// Create service-specific clients
+// Create service-specific clients with correct ports
+// Based on your configuration:
+// - User service: port 8000
+// - Shared-types service: port 8006
+
+// IMPORTANT: Make sure your API_CONFIG has the correct ports:
+// USER_SERVICE should be http://localhost:8000
+// SHARED_SERVICE should be http://localhost:8006
+
 export const userServiceClient = new ApiClient(API_CONFIG.SERVICES.USER_SERVICE)
 export const campaignServiceClient = new ApiClient(API_CONFIG.SERVICES.CAMPAIGN_SERVICE)
 export const analyticsServiceClient = new ApiClient(API_CONFIG.SERVICES.ANALYTICS_SERVICE)
@@ -376,4 +434,15 @@ export function clearGlobalAuthTokens() {
   paymentServiceClient.clearAuthTokens()
   integrationServiceClient.clearAuthTokens()
   sharedServiceClient.clearAuthTokens()
+}
+
+// Debug function to check current service URLs
+export function debugServiceUrls() {
+  console.log('🔍 Current Service URLs:')
+  console.log('User Service:', API_CONFIG.SERVICES.USER_SERVICE)
+  console.log('Shared Service:', API_CONFIG.SERVICES.SHARED_SERVICE)
+  console.log('Campaign Service:', API_CONFIG.SERVICES.CAMPAIGN_SERVICE)
+  console.log('Analytics Service:', API_CONFIG.SERVICES.ANALYTICS_SERVICE)
+  console.log('Payment Service:', API_CONFIG.SERVICES.PAYMENT_SERVICE)
+  console.log('Integration Service:', API_CONFIG.SERVICES.INTEGRATION_SERVICE)
 }
