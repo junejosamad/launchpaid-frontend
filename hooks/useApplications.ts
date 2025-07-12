@@ -1,6 +1,6 @@
 // hooks/useApplications.ts
-import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { campaignServiceClient } from '@/lib/api/client'
 
 // Types matching your backend schemas
 export interface Application {
@@ -15,6 +15,7 @@ export interface Application {
   reviewed_at?: string
   reviewer_id?: string
   review_notes?: string
+  rejection_reason?: string
   creator?: {
     id: string
     username: string
@@ -55,65 +56,121 @@ export interface ApplicationFilters {
   offset?: number
 }
 
-// API functions
+export interface ReviewData {
+  status: 'approved' | 'rejected'
+  rejection_reason?: string
+}
+
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: string
+  message?: string
+}
+
+interface ApplicationsResponse {
+  applications?: Application[]
+  data?: Application[]
+  [key: string]: any
+}
+
+interface CampaignsResponse {
+  campaigns?: Array<{id: string, name: string, status: string}>
+  data?: Array<{id: string, name: string, status: string}>
+  [key: string]: any
+}
+
+// Get the auth token
+const getAuthToken = () => {
+  // Check multiple possible storage locations
+  const token = localStorage.getItem('auth_token') || 
+                localStorage.getItem('access_token') ||
+                sessionStorage.getItem('auth_token') ||
+                sessionStorage.getItem('access_token')
+  return token
+}
+
+// API functions using campaignServiceClient
 const api = {
   // Get applications for campaign (agency/brand view)
   getCampaignApplications: async (campaignId: string, filters?: ApplicationFilters): Promise<Application[]> => {
-    const params = new URLSearchParams()
-    if (filters?.status && filters.status !== 'All') params.append('status_filter', filters.status)
-    if (filters?.limit) params.append('limit', filters.limit.toString())
-    if (filters?.offset) params.append('offset', filters.offset.toString())
+    const params: Record<string, string> = {}
+    if (filters?.status && filters.status !== 'All') params.status_filter = filters.status
+    if (filters?.limit) params.limit = filters.limit.toString()
+    if (filters?.offset) params.offset = filters.offset.toString()
     
-    const url = `/api/v1/applications/campaign/${campaignId}${params.toString() ? `?${params.toString()}` : ''}`
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-    })
+    const response = await campaignServiceClient.get<ApplicationsResponse>(`/api/v1/applications/campaign/${campaignId}`, params)
     
-    if (!response.ok) {
-      throw new Error('Failed to fetch applications')
+    if (response.success && response.data) {
+      const data = response.data as ApplicationsResponse
+      // Handle different response formats
+      if (Array.isArray(data)) {
+        return data
+      } else if (data.applications && Array.isArray(data.applications)) {
+        return data.applications
+      } else if (data.data && Array.isArray(data.data)) {
+        return data.data
+      }
+      return []
     }
     
-    return response.json()
+    throw new Error(response.error || 'Failed to fetch applications')
+  },
+
+  // Review application (approve/reject)
+  reviewApplication: async (applicationId: string, reviewData: ReviewData): Promise<Application> => {
+    const response = await campaignServiceClient.put<Application>(
+      `/api/v1/applications/${applicationId}/review`, 
+      reviewData
+    )
+    
+    if (response.success && response.data) {
+      return response.data
+    }
+    
+    throw new Error(response.error || 'Failed to review application')
+  },
+
+  // Get campaigns for applications page
+  getCampaigns: async (): Promise<Array<{id: string, name: string, status: string}>> => {
+    const response = await campaignServiceClient.get<CampaignsResponse>('/api/v1/campaigns/', {
+      status: 'active',
+      limit: 100
+    })
+    
+    if (response.success && response.data) {
+      const data = response.data as CampaignsResponse
+      // Handle different response formats
+      if (Array.isArray(data)) {
+        return data
+      } else if (data.campaigns && Array.isArray(data.campaigns)) {
+        return data.campaigns
+      } else if (data.data && Array.isArray(data.data)) {
+        return data.data
+      }
+      return []
+    }
+    
+    throw new Error(response.error || 'Failed to fetch campaigns')
   },
 
   // Get creator's own applications
   getMyApplications: async (): Promise<Application[]> => {
-    const response = await fetch('/api/v1/applications/my-applications', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-    })
+    const response = await campaignServiceClient.get<ApplicationsResponse>('/api/v1/applications/my-applications')
     
-    if (!response.ok) {
-      throw new Error('Failed to fetch my applications')
+    if (response.success && response.data) {
+      const data = response.data as ApplicationsResponse
+      if (Array.isArray(data)) {
+        return data
+      } else if (data.applications && Array.isArray(data.applications)) {
+        return data.applications
+      } else if (data.data && Array.isArray(data.data)) {
+        return data.data
+      }
+      return []
     }
     
-    return response.json()
-  },
-
-  // Review application (approve/reject)
-  reviewApplication: async (applicationId: string, reviewData: {
-    status: 'approved' | 'rejected'
-    review_notes?: string
-  }): Promise<Application> => {
-    const response = await fetch(`/api/v1/applications/${applicationId}/review`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(reviewData),
-    })
-    
-    if (!response.ok) {
-      throw new Error('Failed to review application')
-    }
-    
-    return response.json()
+    throw new Error(response.error || 'Failed to fetch my applications')
   },
 
   // Apply to campaign (creator action)
@@ -123,38 +180,21 @@ const api = {
     previous_gmv?: number
     engagement_rate?: number
   }): Promise<Application> => {
-    const response = await fetch('/api/v1/applications/', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(applicationData),
+    const response = await campaignServiceClient.post<Application>('/api/v1/applications/', {
+      campaign_id: applicationData.campaign_id,
+      application_data: {
+        message: applicationData.application_message,
+        previous_gmv: applicationData.previous_gmv,
+        engagement_rate: applicationData.engagement_rate
+      }
     })
     
-    if (!response.ok) {
-      throw new Error('Failed to apply to campaign')
+    if (response.success && response.data) {
+      return response.data
     }
     
-    return response.json()
+    throw new Error(response.error || 'Failed to apply to campaign')
   },
-
-  // Get campaigns for applications page
-  getCampaigns: async (): Promise<Array<{id: string, name: string, status: string}>> => {
-    const response = await fetch('/api/v1/campaigns/', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-    })
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch campaigns')
-    }
-    
-    const data = await response.json()
-    return data.campaigns || data
-  }
 }
 
 // Custom hooks
@@ -163,6 +203,8 @@ export function useCampaignApplications(campaignId: string, filters?: Applicatio
     queryKey: ['applications', 'campaign', campaignId, filters],
     queryFn: () => api.getCampaignApplications(campaignId, filters),
     enabled: !!campaignId,
+    staleTime: 30000, // Consider data stale after 30 seconds
+    gcTime: 300000, // Keep in cache for 5 minutes (formerly cacheTime)
   })
 }
 
@@ -170,6 +212,8 @@ export function useMyApplications() {
   return useQuery({
     queryKey: ['applications', 'my'],
     queryFn: api.getMyApplications,
+    staleTime: 30000,
+    gcTime: 300000,
   })
 }
 
@@ -177,6 +221,8 @@ export function useCampaigns() {
   return useQuery({
     queryKey: ['campaigns'],
     queryFn: api.getCampaigns,
+    staleTime: 60000, // Consider campaigns stale after 1 minute
+    gcTime: 600000, // Keep in cache for 10 minutes
   })
 }
 
@@ -186,12 +232,26 @@ export function useReviewApplication() {
   return useMutation({
     mutationFn: ({ applicationId, reviewData }: {
       applicationId: string
-      reviewData: { status: 'approved' | 'rejected'; review_notes?: string }
+      reviewData: ReviewData
     }) => api.reviewApplication(applicationId, reviewData),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       // Invalidate and refetch applications
       queryClient.invalidateQueries({ queryKey: ['applications'] })
+      
+      // Optionally update the cache directly for immediate UI update
+      queryClient.setQueryData(
+        ['applications', 'campaign', data.campaign_id],
+        (oldData: Application[] | undefined) => {
+          if (!oldData) return oldData
+          return oldData.map(app => 
+            app.id === data.id ? data : app
+          )
+        }
+      )
     },
+    onError: (error) => {
+      console.error('Failed to review application:', error)
+    }
   })
 }
 
@@ -203,6 +263,7 @@ export function useApplyToCampaign() {
     onSuccess: () => {
       // Invalidate and refetch applications
       queryClient.invalidateQueries({ queryKey: ['applications'] })
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] })
     },
   })
 }
@@ -217,35 +278,62 @@ export function useBulkReviewApplications() {
       action: 'approved' | 'rejected'
       notes?: string
     }) => {
-      const promises = applicationIds.map(id => 
-        api.reviewApplication(id, { status: action, review_notes: notes })
-      )
-      return Promise.all(promises)
+      // Process applications in parallel but with a limit to avoid overwhelming the server
+      const batchSize = 5
+      const results = []
+      
+      for (let i = 0; i < applicationIds.length; i += batchSize) {
+        const batch = applicationIds.slice(i, i + batchSize)
+        const batchPromises = batch.map(id => 
+          api.reviewApplication(id, { 
+            status: action, 
+            rejection_reason: action === 'rejected' ? notes : undefined 
+          })
+        )
+        const batchResults = await Promise.all(batchPromises)
+        results.push(...batchResults)
+      }
+      
+      return results
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['applications'] })
     },
+    onError: (error) => {
+      console.error('Failed to bulk review applications:', error)
+    }
   })
 }
 
-// Statistics hook
+// Statistics hook (if you have a stats endpoint)
 export function useApplicationStats(campaignId?: string) {
   return useQuery({
     queryKey: ['applications', 'stats', campaignId],
     queryFn: async () => {
-      // This would call your dashboard analytics endpoint
-      const response = await fetch('/api/v1/dashboard/analytics', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-        },
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch stats')
+      // If you don't have a dedicated stats endpoint, calculate from applications
+      if (campaignId) {
+        const applications = await api.getCampaignApplications(campaignId)
+        return {
+          total: applications.length,
+          pending: applications.filter(a => a.status === 'pending').length,
+          approved: applications.filter(a => a.status === 'approved').length,
+          rejected: applications.filter(a => a.status === 'rejected').length,
+          approvalRate: applications.length > 0 
+            ? (applications.filter(a => a.status === 'approved').length / applications.length) * 100
+            : 0
+        }
       }
       
-      return response.json()
+      // Return empty stats if no campaign selected
+      return {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        approvalRate: 0
+      }
     },
+    enabled: !!campaignId,
+    staleTime: 30000,
   })
 }

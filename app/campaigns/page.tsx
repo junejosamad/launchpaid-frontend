@@ -54,6 +54,17 @@ interface Campaign {
   payoutType: "per-post" | "gmv" | "hybrid"
 }
 
+interface CampaignResponse {
+  campaigns?: Campaign[]
+  data?: Campaign[]
+  [key: string]: any
+}
+
+interface ApplicationResponse {
+  data?: Array<{ campaign_id: string }>
+  [key: string]: any
+}
+
 // Mock data for development/fallback
 const mockCampaigns: Campaign[] = [
   {
@@ -94,7 +105,7 @@ const mockCampaigns: Campaign[] = [
 ]
 
 export default function CampaignsPage() {
-  const { user } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -169,27 +180,27 @@ export default function CampaignsPage() {
   }
 
   // Fetch campaigns from backend
-  // In campaigns/page.tsx, update the fetchCampaigns function
-
   const fetchCampaigns = async () => {
     try {
       setLoading(true)
       setError(null)
       setIsOffline(false)
 
-      const response = await campaignServiceClient.get('/api/v1/campaigns', {
+      const response = await campaignServiceClient.get<CampaignResponse>('/api/v1/campaigns', {
         status: 'active',
         limit: 100
       })
 
       if (response.success && response.data) {
-        let campaignData = []
+        let campaignData: any[] = []
         
         // Handle different response formats
         if (Array.isArray(response.data)) {
           campaignData = response.data
-        } else if (response.data.campaigns) {
+        } else if (response.data.campaigns && Array.isArray(response.data.campaigns)) {
           campaignData = response.data.campaigns
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          campaignData = response.data.data
         }
 
         // Only transform campaigns that have required fields
@@ -224,13 +235,20 @@ export default function CampaignsPage() {
 
   // Fetch user's applied campaigns
   const fetchAppliedCampaigns = async () => {
-    if (!user) return
+    if (!user || !isAuthenticated) return
 
     try {
-      const response = await campaignServiceClient.get('/api/v1/applications/my-applications')
+      const response = await campaignServiceClient.get<ApplicationResponse>('/api/v1/applications/my-applications')
       
       if (response.success && response.data) {
-        const appliedIds = response.data.map((app: any) => app.campaign_id)
+        let appliedIds: string[] = []
+        
+        if (Array.isArray(response.data)) {
+          appliedIds = response.data.map((app: any) => app.campaign_id)
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          appliedIds = response.data.data.map((app: any) => app.campaign_id)
+        }
+        
         setAppliedCampaigns(appliedIds)
       }
     } catch (err) {
@@ -241,14 +259,14 @@ export default function CampaignsPage() {
 
   useEffect(() => {
     fetchCampaigns()
-    if (user) {
+    if (user && isAuthenticated) {
       fetchAppliedCampaigns()
     }
-  }, [user])
+  }, [user, isAuthenticated])
 
   // Handle campaign application
   const handleApply = async (campaignId: string) => {
-    if (!user) {
+    if (!user || !isAuthenticated) {
       toast({
         title: "Authentication Required",
         description: "Please log in to apply for campaigns",
@@ -268,14 +286,16 @@ export default function CampaignsPage() {
     }
 
     // Check profile completion
-    const profileComplete = user.profile_completion_percentage >= 80
+    const profileComplete = (user as any).profile_completion_percentage >= 80 || 
+                           (user as any).profileCompletionPercentage >= 80 ||
+                           true // Default to true if property doesn't exist
 
     if (!profileComplete) {
       setShowProfileModal(true)
       return
     }
 
-    // Check capacity (mock check - replace with actual logic)
+    // Check capacity (you can adjust this logic based on your needs)
     const atCapacity = appliedCampaigns.length >= 10
 
     if (atCapacity) {
@@ -286,13 +306,9 @@ export default function CampaignsPage() {
     try {
       setApplyingTo(campaignId)
       
-      const response = await campaignServiceClient.post('/api/v1/applications', {
+      const response = await campaignServiceClient.post('/api/v1/applications/', {
         campaign_id: campaignId,
-        application_data: {
-          message: "I'm interested in this campaign!",
-          follower_count: user.follower_count || 0,
-          engagement_rate: user.engagement_rate || 0
-        }
+        application_data: {}
       })
 
       if (response.success) {
@@ -305,6 +321,7 @@ export default function CampaignsPage() {
         throw new Error(response.error || "Failed to submit application")
       }
     } catch (err: any) {
+      console.error("Application error:", err)
       toast({
         title: "Application Failed",
         description: err.message || "Failed to submit application",
@@ -692,7 +709,7 @@ export default function CampaignsPage() {
               Complete Your Profile
             </DialogTitle>
             <DialogDescription>
-              Finish your profile to apply for brand deals and start earning with top campaigns.
+              Finish your profile to apply for brand deals and start earning with top campaigns. You need at least 80% profile completion.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

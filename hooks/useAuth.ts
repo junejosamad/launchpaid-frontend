@@ -74,6 +74,35 @@ export function useAuth() {
     sessionStorage.removeItem("refresh_token")
   }
 
+  // Helper function to refresh access token
+  const refreshAccessToken = async (): Promise<boolean> => {
+    console.log("🔄 Attempting to refresh access token...")
+    const refreshToken = localStorage.getItem("refresh_token") || sessionStorage.getItem("refresh_token")
+    
+    if (!refreshToken) {
+      console.log("❌ No refresh token available")
+      return false
+    }
+
+    try {
+      const response = await userServiceClient.post<{
+        access_token: string
+        refresh_token?: string
+      }>('/api/v1/auth/refresh', { refresh_token: refreshToken })
+
+      if (response.success && response.data) {
+        const { access_token, refresh_token: newRefreshToken } = response.data
+        storeTokens(access_token, newRefreshToken)
+        console.log("✅ Token refreshed successfully")
+        return true
+      }
+    } catch (error) {
+      console.error("❌ Token refresh failed:", error)
+    }
+
+    return false
+  }
+
   // Initialize auth state
   useEffect(() => {
     const initAuth = async () => {
@@ -103,7 +132,30 @@ export function useAuth() {
 
       try {
         console.log("📡 [useAuth] Fetching user profile with token...")
-        const response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+        
+        // Try to fetch user profile - first attempt with current endpoint
+        let response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+        
+        // If that fails, try the /me endpoint which is common in FastAPI
+        if (!response.success) {
+          console.log("📡 [useAuth] Trying /me endpoint...")
+          response = await userServiceClient.get<User>('/api/v1/me')
+        }
+        
+        // If still failing and it's a 401, try to refresh token
+        if (!response.success && response.error?.includes('401')) {
+          console.log("🔄 [useAuth] Got 401, attempting token refresh...")
+          const refreshed = await refreshAccessToken()
+          
+          if (refreshed) {
+            // Retry with new token
+            response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+            if (!response.success) {
+              response = await userServiceClient.get<User>('/api/v1/me')
+            }
+          }
+        }
+        
         console.log("📡 [useAuth] Profile response:", response)
         
         if (response.success && response.data) {
@@ -229,6 +281,14 @@ export function useAuth() {
 
           // Determine redirect path based on role
           const userRole = user.role || user.userRole
+          
+          // For creators, check if profile is complete
+          if (userRole === "creator" && user.profile_completion_percentage < 100) {
+            console.log(`🚀 [useAuth] Creator profile incomplete (${user.profile_completion_percentage}%), redirecting to profile`)
+            router.push("/dashboard/profile")
+            return { success: true }
+          }
+          
           const redirectPath =
             userRole === "creator"
               ? "/creator-dashboard"
@@ -495,7 +555,23 @@ export function useAuth() {
     }
 
     try {
-      const response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+      // Try multiple endpoints
+      let response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+      
+      if (!response.success) {
+        response = await userServiceClient.get<User>('/api/v1/me')
+      }
+      
+      if (!response.success && response.error?.includes('401')) {
+        const refreshed = await refreshAccessToken()
+        if (refreshed) {
+          response = await userServiceClient.get<User>(ENDPOINTS.AUTH.PROFILE)
+          if (!response.success) {
+            response = await userServiceClient.get<User>('/api/v1/me')
+          }
+        }
+      }
+      
       if (response.success && response.data) {
         const userData = ((response.data && typeof response.data === 'object' && 'data' in response.data) 
           ? response.data.data 

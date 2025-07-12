@@ -1,7 +1,7 @@
+// app/profile/page.tsx
+
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { DashboardSidebar } from "@/components/dashboard-sidebar"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,10 +14,8 @@ import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useToast } from "@/hooks/use-toast"
-import { useAuth } from "@/hooks/useAuth"
-import { sharedServiceClient } from "@/lib/api/client"
-import { ENDPOINTS, API_CONFIG } from "@/lib/api/config"
+import { useProfile } from "@/hooks/useProfile"
+import { useRouter } from "next/navigation"
 import {
   CheckCircle,
   AlertCircle,
@@ -37,529 +35,30 @@ import {
   Loader2,
 } from "lucide-react"
 
-// Type definitions
-interface NotificationPreferences {
-  sms: boolean
-  email: boolean
-  in_app: boolean
-  campaigns: boolean
-  payments: boolean
-  opportunities: boolean
-  performance: boolean
-}
-
-interface AudienceGenderSplit {
-  male: number
-  female: number
-  other: number
-}
-
-interface AudienceAgeGroups {
-  "13-17": number
-  "18-24": number
-  "25-34": number
-  "35-44": number
-  "45+": number
-}
-
-interface ProfileData {
-  // Basic Info
-  username: string
-  first_name: string
-  last_name: string
-  email: string
-  phone: string
-  age: string
-  gender: string
-  ethnicity: string
-  bio: string
-  avatar_url?: string
-  
-  // Location
-  shipping_address: string
-  city: string
-  state: string
-  country: string
-  zip_code: string
-  
-  // Social Media
-  tiktok_handle: string
-  instagram_handle: string
-  youtube_handle: string
-  discord_handle: string
-  
-  // Creator Specific
-  primary_niche: string
-  secondary_niches: string[]
-  content_style: string[]
-  
-  // Audience Demographics
-  audience_gender_split: AudienceGenderSplit
-  audience_age_groups: AudienceAgeGroups
-  audience_top_locations: string[]
-  
-  // Notification Preferences
-  notifications: NotificationPreferences
-}
-
-// API Response type - matches backend field names
-interface UserProfileResponse {
-  username?: string
-  first_name?: string
-  last_name?: string
-  email?: string
-  phone?: string
-  age?: string
-  gender?: string
-  ethnicity?: string
-  bio?: string
-  profile_image_url?: string
-  
-  // Address fields
-  address_line1?: string
-  address_line2?: string
-  city?: string
-  state?: string
-  country?: string
-  postal_code?: string
-  
-  // Social media
-  tiktok_handle?: string
-  instagram_handle?: string
-  youtube_handle?: string
-  discord_handle?: string
-  
-  // Creator specific
-  primary_niche?: string
-  secondary_niches?: string[]
-  content_style?: string[]
-  audience_gender_split?: AudienceGenderSplit
-  audience_age_groups?: AudienceAgeGroups
-  audience_top_locations?: string[]
-  notification_preferences?: NotificationPreferences
-}
-
-interface FileUploadResponse {
-  url: string
-  file_id: string
-  file_name: string
-  file_size: number
-}
-
-const NICHES = [
-  "Beauty & Care",
-  "Fashion",
-  "Fitness & Health", 
-  "Food & Cooking",
-  "Technology",
-  "Home & Living",
-  "Outdoor & Sports",
-  "Collectibles & Toys",
-  "Entertainment",
-  "Education",
-  "Lifestyle",
-  "Travel",
-  "Gaming",
-  "DIY & Crafts",
-  "Parenting",
-  "Finance",
-  "Art & Design",
-  "Music",
-  "Pets",
-  "Business"
-]
-
-const CONTENT_STYLES = [
-  "Educational",
-  "Entertainment", 
-  "Reviews",
-  "Tutorials",
-  "Vlogs",
-  "Comedy",
-  "Inspirational",
-  "Behind the Scenes",
-  "Product Demos",
-  "Unboxing",
-  "Challenges",
-  "Q&A"
-]
-
 export default function ProfilePage() {
-  // Enhanced debug logging
-  console.log("🔍 ProfilePage - Component Render Start", {
-    timestamp: new Date().toISOString(),
-    pathname: typeof window !== 'undefined' ? window.location.pathname : 'SSR',
-    tokens: {
-      access_token: typeof window !== 'undefined' ? !!localStorage.getItem('access_token') : false,
-      auth_token: typeof window !== 'undefined' ? !!localStorage.getItem('auth_token') : false,
-    }
-  })
-
   const router = useRouter()
-  const authState = useAuth()
-  const { user, isLoading: authLoading, isAuthenticated, refreshAuth } = authState
-  const { toast } = useToast()
-
-  // Log auth state
-  console.log("🔐 ProfilePage - Auth State:", {
-    user: user ? { id: user.id, email: user.email, role: user.role } : null,
+  const {
+    loading,
+    saving,
+    uploadingAvatar,
+    profileData,
+    setProfileData,
+    completionPercentage,
+    user,
     authLoading,
     isAuthenticated,
-    authStateKeys: Object.keys(authState),
-  })
-
-  // All useState hooks
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  const [authCheckDone, setAuthCheckDone] = useState(false)
-  const [profileData, setProfileData] = useState<ProfileData>({
-    username: "",
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    age: "",
-    gender: "",
-    ethnicity: "",
-    bio: "",
-    shipping_address: "",
-    city: "",
-    state: "",
-    country: "United States",
-    zip_code: "",
-    tiktok_handle: "",
-    instagram_handle: "",
-    youtube_handle: "",
-    discord_handle: "",
-    primary_niche: "",
-    secondary_niches: [],
-    content_style: [],
-    audience_gender_split: { male: 33, female: 67, other: 0 },
-    audience_age_groups: {
-      "13-17": 5,
-      "18-24": 45,
-      "25-34": 35,
-      "35-44": 10,
-      "45+": 5
-    },
-    audience_top_locations: [],
-    notifications: {
-      sms: true,
-      email: true,
-      in_app: true,
-      campaigns: true,
-      payments: true,
-      opportunities: true,
-      performance: false,
-    }
-  })
-
-  // Auth check effect
-  useEffect(() => {
-    console.log("🚀 ProfilePage - Auth Check Effect Running", {
-      authLoading,
-      isAuthenticated,
-      user: !!user,
-      authCheckDone
-    })
-
-    if (!authLoading && !authCheckDone) {
-      setAuthCheckDone(true)
-      
-      if (!isAuthenticated || !user) {
-        console.log("❌ ProfilePage - Not authenticated, redirecting to /auth")
-        router.push('/auth')
-      } else if (user.role !== 'creator') {
-        console.log("❌ ProfilePage - Not a creator, redirecting based on role:", user.role)
-        router.push(user.role === 'admin' ? '/admin' : user.role === 'agency' ? '/agency' : '/dashboard')
-      } else {
-        console.log("✅ ProfilePage - Authentication verified, user is creator")
-      }
-    }
-  }, [authLoading, isAuthenticated, user, router, authCheckDone])
-
-  // Fetch profile when user is available
-  useEffect(() => {
-    console.log("📊 ProfilePage - Profile Fetch Effect", {
-      user: !!user,
-      isAuthenticated,
-      loading
-    })
-
-    if (user && isAuthenticated) {
-      fetchProfile()
-    }
-  }, [user, isAuthenticated])
-
-  const fetchProfile = async () => {
-    try {
-      console.log("📡 ProfilePage - Starting profile fetch")
-      setLoading(true)
-      
-      // Check tokens
-      const accessToken = localStorage.getItem('access_token')
-      const authToken = localStorage.getItem('auth_token')
-      console.log('🔑 ProfilePage - Tokens available:', {
-        hasAccessToken: !!accessToken,
-        hasAuthToken: !!authToken,
-        usingToken: accessToken ? 'access_token' : authToken ? 'auth_token' : 'none'
-      })
-      
-      const response = await sharedServiceClient.get<UserProfileResponse>('/api/v1/me')
-      
-      console.log('✅ ProfilePage - Profile fetch response:', {
-        success: response.success,
-        hasData: !!response.data,
-        dataKeys: response.data ? Object.keys(response.data) : [],
-        error: response.error
-      })
-      
-      if (response.success && response.data) {
-        const userData = response.data as UserProfileResponse
-        setProfileData(prev => ({
-          ...prev,
-          username: userData.username || "",
-          first_name: userData.first_name || "",
-          last_name: userData.last_name || "",
-          email: userData.email || user?.email || "",
-          phone: userData.phone || "",
-          age: userData.age || "",
-          gender: userData.gender || "",
-          ethnicity: userData.ethnicity || "",
-          bio: userData.bio || "",
-          avatar_url: userData.profile_image_url || "",
-          shipping_address: userData.address_line1 || "",
-          city: userData.city || "",
-          state: userData.state || "",
-          country: userData.country || "United States",
-          zip_code: userData.postal_code || "",
-          tiktok_handle: userData.tiktok_handle || "",
-          instagram_handle: userData.instagram_handle || "",
-          youtube_handle: userData.youtube_handle || "",
-          discord_handle: userData.discord_handle || "",
-          primary_niche: userData.primary_niche || "",
-          secondary_niches: userData.secondary_niches || [],
-          content_style: userData.content_style || [],
-          audience_gender_split: userData.audience_gender_split || { male: 33, female: 67, other: 0 },
-          audience_age_groups: userData.audience_age_groups || {
-            "13-17": 5,
-            "18-24": 45,
-            "25-34": 35,
-            "35-44": 10,
-            "45+": 5
-          },
-          audience_top_locations: userData.audience_top_locations || [],
-          notifications: userData.notification_preferences || {
-            sms: true,
-            email: true,
-            in_app: true,
-            campaigns: true,
-            payments: true,
-            opportunities: true,
-            performance: false,
-          }
-        }))
-      } else {
-        console.log("⚠️ ProfilePage - No profile data or unsuccessful response")
-      }
-    } catch (error: any) {
-      console.error("❌ ProfilePage - Error fetching profile:", {
-        error: error.message,
-        status: error.response?.status,
-        data: error.response?.data
-      })
-      
-      // Check if it's an auth error
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        console.log("🔒 ProfilePage - Auth error detected, redirecting to /auth")
-        router.push('/auth')
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to load profile data",
-          variant: "destructive"
-        })
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Save profile
-  const saveProfile = async () => {
-    try {
-      setSaving(true)
-      
-      console.log('💾 ProfilePage - Saving profile')
-      const response = await sharedServiceClient.patch('/api/v1/profile', {
-        username: profileData.username,
-        first_name: profileData.first_name,
-        last_name: profileData.last_name,
-        phone: profileData.phone,
-        age: profileData.age,
-        gender: profileData.gender,
-        ethnicity: profileData.ethnicity,
-        bio: profileData.bio,
-        
-        // Address fields
-        address_line1: profileData.shipping_address,
-        city: profileData.city,
-        state: profileData.state,
-        country: profileData.country,
-        postal_code: profileData.zip_code,
-        
-        // Social media (without @ symbols)
-        tiktok_handle: profileData.tiktok_handle.replace('@', ''),
-        instagram_handle: profileData.instagram_handle.replace('@', ''),
-        youtube_handle: profileData.youtube_handle.replace('@', ''),
-        discord_handle: profileData.discord_handle,
-        
-        // Creator specific fields
-        primary_niche: profileData.primary_niche,
-        secondary_niches: profileData.secondary_niches,
-        content_style: profileData.content_style,
-        audience_gender_split: profileData.audience_gender_split,
-        audience_age_groups: profileData.audience_age_groups,
-        audience_top_locations: profileData.audience_top_locations,
-        
-        // Notification preferences  
-        notification_preferences: profileData.notifications
-      })
-      
-      if (response.success) {
-        console.log('✅ ProfilePage - Profile saved successfully')
-        toast({
-          title: "Success",
-          description: "Profile updated successfully",
-        })
-        
-        // Refresh auth to update user data
-        await refreshAuth()
-        
-        // If profile is complete, redirect to dashboard
-        if (completionPercentage === 100) {
-          router.push('/creator-dashboard')
-        }
-      } else {
-        throw new Error(response.error || "Failed to update profile")
-      }
-    } catch (error: any) {
-      console.error("❌ ProfilePage - Error saving profile:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save profile",
-        variant: "destructive"
-      })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // Handle avatar upload
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    try {
-      setUploadingAvatar(true)
-      
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("folder", "avatars")
-      
-      const response = await sharedServiceClient.upload<FileUploadResponse>(ENDPOINTS.SHARED.UPLOAD_FILE, formData)
-      
-      if (response.success && response.data) {
-        const uploadData = response.data as FileUploadResponse
-        setProfileData(prev => ({ ...prev, avatar_url: uploadData.url }))
-        
-        // Update profile with new avatar using shared-types service
-        await sharedServiceClient.patch('/api/v1/profile', {
-          profile_image_url: uploadData.url
-        })
-        
-        toast({
-          title: "Success",
-          description: "Avatar uploaded successfully",
-        })
-      }
-    } catch (error) {
-      console.error("Error uploading avatar:", error)
-      toast({
-        title: "Error",
-        description: "Failed to upload avatar",
-        variant: "destructive"
-      })
-    } finally {
-      setUploadingAvatar(false)
-    }
-  }
-
-  // Add/Remove secondary niche
-  const toggleSecondaryNiche = (niche: string) => {
-    setProfileData(prev => ({
-      ...prev,
-      secondary_niches: prev.secondary_niches.includes(niche)
-        ? prev.secondary_niches.filter(n => n !== niche)
-        : [...prev.secondary_niches, niche]
-    }))
-  }
-
-  // Add/Remove content style
-  const toggleContentStyle = (style: string) => {
-    setProfileData(prev => ({
-      ...prev,
-      content_style: prev.content_style.includes(style)
-        ? prev.content_style.filter(s => s !== style)
-        : [...prev.content_style, style]
-    }))
-  }
-
-  // Add location
-  const addLocation = (location: string) => {
-    if (location && !profileData.audience_top_locations.includes(location)) {
-      setProfileData(prev => ({
-        ...prev,
-        audience_top_locations: [...prev.audience_top_locations, location]
-      }))
-    }
-  }
-
-  // Remove location
-  const removeLocation = (location: string) => {
-    setProfileData(prev => ({
-      ...prev,
-      audience_top_locations: prev.audience_top_locations.filter(l => l !== location)
-    }))
-  }
-
-  // Calculate profile completion
-  const calculateCompletion = () => {
-    const requiredFields = [
-      profileData.first_name,
-      profileData.last_name,
-      profileData.phone,
-      profileData.age,
-      profileData.gender,
-      profileData.shipping_address,
-      profileData.city,
-      profileData.state,
-      profileData.zip_code,
-      profileData.tiktok_handle,
-      profileData.primary_niche,
-      profileData.audience_top_locations.length > 0
-    ]
-    
-    const completedFields = requiredFields.filter(field => !!field).length
-    return Math.round((completedFields / requiredFields.length) * 100)
-  }
-
-  const completionPercentage = calculateCompletion()
+    saveProfile,
+    handleAvatarUpload,
+    toggleSecondaryNiche,
+    toggleContentStyle,
+    addLocation,
+    removeLocation,
+    NICHES,
+    CONTENT_STYLES
+  } = useProfile()
 
   // Show loading state while auth is being checked
   if (authLoading || loading) {
-    console.log("⏳ ProfilePage - Showing loading state", { authLoading, loading })
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
@@ -572,11 +71,8 @@ export default function ProfilePage() {
 
   // Don't render the full page if not authenticated
   if (!user || !isAuthenticated) {
-    console.log("🚫 ProfilePage - Not rendering, user not authenticated")
     return null
   }
-
-  console.log("✨ ProfilePage - Rendering full page")
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -691,7 +187,7 @@ export default function ProfilePage() {
                       <Input
                         id="username"
                         value={profileData.username}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, username: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, username: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                         placeholder="@username"
                       />
@@ -717,7 +213,7 @@ export default function ProfilePage() {
                       <Input
                         id="first_name"
                         value={profileData.first_name}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, first_name: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, first_name: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                         placeholder="John"
                       />
@@ -727,7 +223,7 @@ export default function ProfilePage() {
                       <Input
                         id="last_name"
                         value={profileData.last_name}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, last_name: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, last_name: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                         placeholder="Doe"
                       />
@@ -737,7 +233,7 @@ export default function ProfilePage() {
                       <Input
                         id="phone"
                         value={profileData.phone}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, phone: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                         placeholder="+1 (555) 123-4567"
                       />
@@ -748,7 +244,7 @@ export default function ProfilePage() {
                         id="age"
                         type="number"
                         value={profileData.age}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, age: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, age: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                         placeholder="25"
                       />
@@ -757,7 +253,7 @@ export default function ProfilePage() {
                       <Label htmlFor="gender">Gender</Label>
                       <Select 
                         value={profileData.gender}
-                        onValueChange={(value: string) => setProfileData({ ...profileData, gender: value })}
+                        onValueChange={(value) => setProfileData({ ...profileData, gender: value })}
                       >
                         <SelectTrigger className="bg-gray-800 border-gray-700">
                           <SelectValue placeholder="Select gender" />
@@ -774,7 +270,7 @@ export default function ProfilePage() {
                       <Label htmlFor="ethnicity">Ethnicity</Label>
                       <Select 
                         value={profileData.ethnicity}
-                        onValueChange={(value: string) => setProfileData({ ...profileData, ethnicity: value })}
+                        onValueChange={(value) => setProfileData({ ...profileData, ethnicity: value })}
                       >
                         <SelectTrigger className="bg-gray-800 border-gray-700">
                           <SelectValue placeholder="Select ethnicity" />
@@ -798,7 +294,7 @@ export default function ProfilePage() {
                     <Textarea
                       id="bio"
                       value={profileData.bio}
-                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setProfileData({ ...profileData, bio: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, bio: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                       placeholder="Tell brands about yourself..."
                       rows={4}
@@ -828,7 +324,7 @@ export default function ProfilePage() {
                       id="shipping_address"
                       placeholder="123 Main St"
                       value={profileData.shipping_address}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, shipping_address: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, shipping_address: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                     />
                   </div>
@@ -839,7 +335,7 @@ export default function ProfilePage() {
                         id="city"
                         placeholder="Los Angeles"
                         value={profileData.city}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, city: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, city: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                       />
                     </div>
@@ -849,7 +345,7 @@ export default function ProfilePage() {
                         id="state"
                         placeholder="CA"
                         value={profileData.state}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, state: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, state: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                       />
                     </div>
@@ -859,7 +355,7 @@ export default function ProfilePage() {
                         id="zip_code"
                         placeholder="90210"
                         value={profileData.zip_code}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, zip_code: e.target.value })}
+                        onChange={(e) => setProfileData({ ...profileData, zip_code: e.target.value })}
                         className="bg-gray-800 border-gray-700"
                       />
                     </div>
@@ -867,7 +363,7 @@ export default function ProfilePage() {
                       <Label htmlFor="country">Country</Label>
                       <Select 
                         value={profileData.country}
-                        onValueChange={(value: string) => setProfileData({ ...profileData, country: value })}
+                        onValueChange={(value) => setProfileData({ ...profileData, country: value })}
                       >
                         <SelectTrigger className="bg-gray-800 border-gray-700">
                           <SelectValue />
@@ -905,7 +401,7 @@ export default function ProfilePage() {
                     <Input
                       id="tiktok_handle"
                       value={profileData.tiktok_handle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, tiktok_handle: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, tiktok_handle: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                       placeholder="@yourtiktok"
                     />
@@ -916,7 +412,7 @@ export default function ProfilePage() {
                     <Input
                       id="instagram_handle"
                       value={profileData.instagram_handle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, instagram_handle: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, instagram_handle: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                       placeholder="@yourinstagram"
                     />
@@ -926,7 +422,7 @@ export default function ProfilePage() {
                     <Input
                       id="youtube_handle"
                       value={profileData.youtube_handle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, youtube_handle: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, youtube_handle: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                       placeholder="@yourchannel"
                     />
@@ -936,7 +432,7 @@ export default function ProfilePage() {
                     <Input
                       id="discord_handle"
                       value={profileData.discord_handle}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData({ ...profileData, discord_handle: e.target.value })}
+                      onChange={(e) => setProfileData({ ...profileData, discord_handle: e.target.value })}
                       className="bg-gray-800 border-gray-700"
                       placeholder="username#1234"
                     />
@@ -963,7 +459,7 @@ export default function ProfilePage() {
                     <Label htmlFor="primary_niche">Primary Niche</Label>
                     <Select 
                       value={profileData.primary_niche}
-                      onValueChange={(value: string) => setProfileData({ ...profileData, primary_niche: value })}
+                      onValueChange={(value) => setProfileData({ ...profileData, primary_niche: value })}
                     >
                       <SelectTrigger className="bg-gray-800 border-gray-700">
                         <SelectValue placeholder="Select your primary niche" />
@@ -1030,7 +526,12 @@ export default function ProfilePage() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
-                    <Label className="text-sm font-medium mb-3 block">Gender Distribution (%)</Label>
+                    <div className="flex items-center justify-between mb-3">
+                      <Label className="text-sm font-medium">Gender Distribution (%)</Label>
+                      <span className="text-xs text-gray-400">
+                        Total: {Object.values(profileData.audience_gender_split).reduce((sum, val) => sum + val, 0).toFixed(1)}%
+                      </span>
+                    </div>
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <Label htmlFor="gender_male" className="text-xs">Male</Label>
@@ -1039,12 +540,13 @@ export default function ProfilePage() {
                           type="number"
                           min="0"
                           max="100"
+                          step="0.1"
                           value={profileData.audience_gender_split.male}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData(prev => ({
+                          onChange={(e) => setProfileData(prev => ({
                             ...prev,
                             audience_gender_split: {
                               ...prev.audience_gender_split,
-                              male: parseInt(e.target.value) || 0
+                              male: parseFloat(e.target.value) || 0
                             }
                           }))}
                           className="bg-gray-800 border-gray-700"
@@ -1057,12 +559,13 @@ export default function ProfilePage() {
                           type="number"
                           min="0"
                           max="100"
+                          step="0.1"
                           value={profileData.audience_gender_split.female}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData(prev => ({
+                          onChange={(e) => setProfileData(prev => ({
                             ...prev,
                             audience_gender_split: {
                               ...prev.audience_gender_split,
-                              female: parseInt(e.target.value) || 0
+                              female: parseFloat(e.target.value) || 0
                             }
                           }))}
                           className="bg-gray-800 border-gray-700"
@@ -1075,12 +578,13 @@ export default function ProfilePage() {
                           type="number"
                           min="0"
                           max="100"
+                          step="0.1"
                           value={profileData.audience_gender_split.other}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData(prev => ({
+                          onChange={(e) => setProfileData(prev => ({
                             ...prev,
                             audience_gender_split: {
                               ...prev.audience_gender_split,
-                              other: parseInt(e.target.value) || 0
+                              other: parseFloat(e.target.value) || 0
                             }
                           }))}
                           className="bg-gray-800 border-gray-700"
@@ -1090,7 +594,12 @@ export default function ProfilePage() {
                   </div>
 
                   <div>
-                    <Label className="text-sm font-medium mb-3 block">Age Distribution (%)</Label>
+                    <div className="flex items-center justify-between mb-3">
+                      <Label className="text-sm font-medium">Age Distribution (%)</Label>
+                      <span className="text-xs text-gray-400">
+                        Total: {Object.values(profileData.audience_age_groups).reduce((sum, val) => sum + val, 0).toFixed(1)}%
+                      </span>
+                    </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {Object.entries(profileData.audience_age_groups).map(([range, percentage]) => (
                         <div key={range}>
@@ -1100,13 +609,14 @@ export default function ProfilePage() {
                             type="number"
                             min="0"
                             max="100"
+                            step="0.1"
                             value={percentage}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProfileData(prev => ({
+                            onChange={(e) => setProfileData(prev => ({
                               ...prev,
                               audience_age_groups: {
                                 ...prev.audience_age_groups,
-                                [range]: parseInt(e.target.value) || 0
-                              } as AudienceAgeGroups
+                                [range]: parseFloat(e.target.value) || 0
+                              }
                             }))}
                             className="bg-gray-800 border-gray-700"
                           />
@@ -1123,7 +633,7 @@ export default function ProfilePage() {
                           id="add-location"
                           placeholder="Add a country (e.g., United States)"
                           className="bg-gray-800 border-gray-700"
-                          onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                          onKeyPress={(e) => {
                             if (e.key === 'Enter') {
                               const input = e.target as HTMLInputElement
                               addLocation(input.value)
@@ -1164,6 +674,13 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Helper text */}
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <p>• Gender and age percentages should each total 100%</p>
+                    <p>• These demographics help match you with relevant campaigns</p>
+                    <p>• Data is synced with our analytics service</p>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1184,7 +701,7 @@ export default function ProfilePage() {
                       </div>
                       <Switch
                         checked={profileData.notifications.sms}
-                        onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                        onCheckedChange={(checked) => setProfileData(prev => ({
                           ...prev,
                           notifications: { ...prev.notifications, sms: checked }
                         }))}
@@ -1197,7 +714,7 @@ export default function ProfilePage() {
                       </div>
                       <Switch
                         checked={profileData.notifications.email}
-                        onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                        onCheckedChange={(checked) => setProfileData(prev => ({
                           ...prev,
                           notifications: { ...prev.notifications, email: checked }
                         }))}
@@ -1210,7 +727,7 @@ export default function ProfilePage() {
                       </div>
                       <Switch
                         checked={profileData.notifications.in_app}
-                        onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                        onCheckedChange={(checked) => setProfileData(prev => ({
                           ...prev,
                           notifications: { ...prev.notifications, in_app: checked }
                         }))}
@@ -1227,7 +744,7 @@ export default function ProfilePage() {
                         <span className="text-sm">Campaign opportunities</span>
                         <Switch
                           checked={profileData.notifications.campaigns}
-                          onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                          onCheckedChange={(checked) => setProfileData(prev => ({
                             ...prev,
                             notifications: { ...prev.notifications, campaigns: checked }
                           }))}
@@ -1237,7 +754,7 @@ export default function ProfilePage() {
                         <span className="text-sm">Payment confirmations</span>
                         <Switch
                           checked={profileData.notifications.payments}
-                          onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                          onCheckedChange={(checked) => setProfileData(prev => ({
                             ...prev,
                             notifications: { ...prev.notifications, payments: checked }
                           }))}
@@ -1247,7 +764,7 @@ export default function ProfilePage() {
                         <span className="text-sm">New opportunities</span>
                         <Switch
                           checked={profileData.notifications.opportunities}
-                          onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                          onCheckedChange={(checked) => setProfileData(prev => ({
                             ...prev,
                             notifications: { ...prev.notifications, opportunities: checked }
                           }))}
@@ -1257,7 +774,7 @@ export default function ProfilePage() {
                         <span className="text-sm">Performance updates</span>
                         <Switch
                           checked={profileData.notifications.performance}
-                          onCheckedChange={(checked: boolean) => setProfileData(prev => ({
+                          onCheckedChange={(checked) => setProfileData(prev => ({
                             ...prev,
                             notifications: { ...prev.notifications, performance: checked }
                           }))}
