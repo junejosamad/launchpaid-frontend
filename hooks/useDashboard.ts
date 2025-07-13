@@ -123,6 +123,39 @@ export interface CreatorPerformance {
   creator: CreatorSummary
 }
 
+export interface Deliverable {
+  id: string
+  campaign_id: string
+  creator_id: string
+  application_id: string
+  deliverable_number: number
+  title?: string
+  description?: string
+  status: "pending" | "submitted" | "approved" | "rejected" | "overdue"
+  content_url?: string
+  content_type?: string
+  tiktok_post_url?: string
+  post_caption?: string
+  hashtags_used?: string[]
+  due_date?: string
+  submitted_at?: string
+  approved_at?: string
+  published_at?: string
+  feedback?: string
+  agency_feedback?: string
+  revision_requested?: boolean
+  revision_notes?: string
+  views?: number
+  likes?: number
+  comments?: number
+  shares?: number
+  gmv_generated?: number
+  created_at: string
+  updated_at: string
+  creator: CreatorSummary
+  campaign: CampaignSummary
+}
+
 // Hook for dashboard analytics
 export function useDashboardAnalytics(
   timeframe: string = "last_30_days",
@@ -345,13 +378,137 @@ export function useApplications() {
   }
 }
 
-export function useDeliverables() {
+
+
+// Hook for deliverables
+export function useDeliverables(
+  campaignId?: string,
+  statusFilter?: string,
+  creatorId?: string
+) {
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchDeliverables = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      console.log('📦 Fetching deliverables...')
+
+      // Build params object
+      const params: Record<string, string> = {}
+      
+      if (campaignId) {
+        // Fetch deliverables for a specific campaign
+        const response: ApiResponse<Deliverable[]> = await campaignServiceClient.get(
+          `/api/v1/deliverables/campaign/${campaignId}`,
+          statusFilter ? { status_filter: statusFilter } : {}
+        )
+        
+        console.log('📡 Deliverables response:', response)
+
+        if (response.success && response.data) {
+          console.log('✅ Successfully fetched deliverables:', response.data)
+          setDeliverables(response.data)
+        } else {
+          const errorMsg = response.error || 'Failed to fetch deliverables'
+          console.error('❌ Deliverables fetch failed:', errorMsg)
+          setError(errorMsg)
+          setDeliverables([])
+        }
+      } else if (creatorId) {
+        // Fetch deliverables for a specific creator
+        const response: ApiResponse<Deliverable[]> = await campaignServiceClient.get(
+          `/api/v1/deliverables/creator/${creatorId}`,
+          campaignId ? { campaign_id: campaignId } : {}
+        )
+        
+        console.log('📡 Creator deliverables response:', response)
+
+        if (response.success && response.data) {
+          console.log('✅ Successfully fetched creator deliverables:', response.data)
+          setDeliverables(response.data)
+        } else {
+          const errorMsg = response.error || 'Failed to fetch creator deliverables'
+          console.error('❌ Creator deliverables fetch failed:', errorMsg)
+          setError(errorMsg)
+          setDeliverables([])
+        }
+      } else {
+        // No campaign or creator specified
+        setDeliverables([])
+      }
+    } catch (err: any) {
+      console.error("❌ Deliverables fetch error:", err)
+      setError(err.message || 'Unknown error occurred')
+      setDeliverables([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchDeliverables()
+  }, [campaignId, statusFilter, creatorId])
+
+  const submitContent = async (deliverableData: any) => {
+    try {
+      console.log('📤 Submitting deliverable content...')
+      
+      const response: ApiResponse<Deliverable> = await campaignServiceClient.post(
+        '/api/v1/deliverables/submit',
+        deliverableData
+      )
+
+      if (response.success && response.data) {
+        console.log('✅ Successfully submitted deliverable:', response.data)
+        // Refresh deliverables list
+        await fetchDeliverables()
+        return response.data
+      } else {
+        const errorMsg = response.error || 'Failed to submit deliverable'
+        console.error('❌ Deliverable submission failed:', errorMsg)
+        throw new Error(errorMsg)
+      }
+    } catch (err: any) {
+      console.error("❌ Deliverable submission error:", err)
+      throw err
+    }
+  }
+
+  const reviewContent = async (deliverableId: string, reviewData: any) => {
+    try {
+      console.log('📝 Reviewing deliverable content...')
+      
+      const response: ApiResponse<Deliverable> = await campaignServiceClient.put(
+        `/api/v1/deliverables/${deliverableId}/review`,
+        reviewData
+      )
+
+      if (response.success && response.data) {
+        console.log('✅ Successfully reviewed deliverable:', response.data)
+        // Refresh deliverables list
+        await fetchDeliverables()
+        return response.data
+      } else {
+        const errorMsg = response.error || 'Failed to review deliverable'
+        console.error('❌ Deliverable review failed:', errorMsg)
+        throw new Error(errorMsg)
+      }
+    } catch (err: any) {
+      console.error("❌ Deliverable review error:", err)
+      throw err
+    }
+  }
+
   return {
-    deliverables: [],
-    loading: false,
-    error: null,
-    refetch: () => {},
-    submitContent: () => {},
-    reviewContent: () => {},
+    deliverables,
+    loading,
+    error,
+    refetch: fetchDeliverables,
+    submitContent,
+    reviewContent,
   }
 }

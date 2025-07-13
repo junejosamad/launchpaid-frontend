@@ -40,15 +40,18 @@ import { RevenueGrowthChart } from "@/components/charts/revenue-growth-chart"
 import { PostsPerDayChart } from "@/components/charts/posts-per-day-chart"
 import { EngagementChart } from "@/components/charts/engagement-chart"
 import { CampaignCreationModal } from "@/components/agency/campaign-creation-modal"
+import { CampaignDetailsModal } from "@/components/agency/campaign-details-modal"
 
 // Import hooks to fetch real data
 import { 
   useDashboardAnalytics, 
   useCampaigns, 
   useCreatorPerformance,
+  useDeliverables,
   type DashboardAnalytics,
   type Campaign,
-  type CreatorPerformance 
+  type CreatorPerformance,
+  type Deliverable
 } from "@/hooks/useDashboard"
 
 // Import Auth Debug Component
@@ -74,6 +77,7 @@ export default function AgencyDashboardPage() {
   const [timeframe, setTimeframe] = useState("last_30_days")
   const [refreshing, setRefreshing] = useState(false)
   const [showCampaignModal, setShowCampaignModal] = useState(false)
+  const [showCampaignDetailsModal, setShowCampaignDetailsModal] = useState(false)
 
   const { toast } = useToast()
 
@@ -109,6 +113,14 @@ export default function AgencyDashboardPage() {
     error: performanceError,
     refetch: refetchPerformance,
   } = useCreatorPerformance(undefined, timeframe, 10)
+
+  // Fetch deliverables for selected campaign
+  const {
+    deliverables,
+    loading: deliverablesLoading,
+    error: deliverablesError,
+    refetch: refetchDeliverables,
+  } = useDeliverables(selectedCampaign?.id)
 
   // SAFE DATA HANDLING: Ensure all data is properly typed and has fallbacks
   const safeCampaigns = Array.isArray(campaigns) ? campaigns : []
@@ -170,6 +182,11 @@ export default function AgencyDashboardPage() {
     } finally {
       setRefreshing(false)
     }
+  }
+
+  const handleViewCampaignDetails = (campaign: Campaign) => {
+    setSelectedCampaign(campaign)
+    setShowCampaignDetailsModal(true)
   }
 
   // Handle errors - but don't show toast if loading
@@ -702,6 +719,9 @@ export default function AgencyDashboardPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleViewCampaignDetails(campaign)}>
+                                View Details
+                              </DropdownMenuItem>
                               <DropdownMenuItem>Edit Campaign</DropdownMenuItem>
                               <DropdownMenuItem>View Analytics</DropdownMenuItem>
                               <DropdownMenuItem>Manage Creators</DropdownMenuItem>
@@ -727,6 +747,36 @@ export default function AgencyDashboardPage() {
           refetchCampaigns()
         }} 
       />
+
+      {/* Campaign Details Modal */}
+      {selectedCampaign && (
+        <CampaignDetailsModal
+          campaign={{
+            id: selectedCampaign.id,
+            name: selectedCampaign.name,
+            brand: { name: "Brand", logo: "/placeholder.svg" },
+            status: selectedCampaign.status as any,
+            progress: "on-track" as any,
+            gmv: selectedCampaign.current_gmv || 0,
+            creators: { 
+              active: selectedCampaign.current_creators || 0, 
+              total: selectedCampaign.target_creators || 0 
+            },
+            posts: { 
+              completed: selectedCampaign.current_posts || 0, 
+              target: selectedCampaign.target_posts || 0 
+            },
+            startDate: selectedCampaign.start_date || "",
+            endDate: selectedCampaign.end_date || "",
+          }}
+          isOpen={showCampaignDetailsModal}
+          onClose={() => {
+            setShowCampaignDetailsModal(false)
+            setSelectedCampaign(null)
+          }}
+          defaultTab="deliverables"
+        />
+      )}
     </div>
   )
 }

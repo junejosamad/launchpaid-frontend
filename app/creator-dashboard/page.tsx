@@ -1,4 +1,4 @@
-// app/(dashboard)/dashboard-creator/page.tsx
+// app/(dashboard)/dashboard-creator/page.tsx - Fixed campaign mapping
 "use client"
 
 import { useState, useEffect } from "react"
@@ -31,9 +31,12 @@ export default function CreatorDashboard() {
   const loading = campaignsLoading || analyticsLoading
   const error = campaignsError || analyticsError
 
-  const handleViewCampaignDetails = (campaign: any) => {
-    setSelectedCampaign(campaign)
-    setIsModalOpen(true)
+  const handleViewCampaignDetails = (campaignId: string) => {
+    const campaign = campaigns.find(c => c.campaign.id === campaignId)
+    if (campaign) {
+      setSelectedCampaign(campaign)
+      setIsModalOpen(true)
+    }
   }
 
   const handleCloseModal = () => {
@@ -43,11 +46,11 @@ export default function CreatorDashboard() {
     }, 200)
   }
 
-  // Calculate metrics from campaigns
+  // Calculate metrics from campaigns - with safety checks
   const metrics = {
-    totalGMV: campaigns.reduce((sum, c) => sum + (c.campaign.current_gmv || 0), 0),
-    activeCampaigns: campaigns.length,
-    totalViews: campaigns.reduce((sum, c) => sum + (c.campaign.total_views || 0), 0),
+    totalGMV: campaigns?.reduce((sum, c) => sum + (c?.campaign?.current_gmv || 0), 0) || 0,
+    activeCampaigns: campaigns?.length || 0,
+    totalViews: campaigns?.reduce((sum, c) => sum + (c?.campaign?.total_views || 0), 0) || 0,
     avgEngagementRate: analytics?.kpis?.avg_engagement_rate?.value || 0
   }
 
@@ -150,28 +153,20 @@ export default function CreatorDashboard() {
               </div>
             ) : error ? (
               <ApiErrorDisplay error={error} retry={refetchCampaigns} />
-            ) : campaigns.length > 0 ? (
+            ) : campaigns && campaigns.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {campaigns.map((item) => {
-                  const campaign = item.campaign
-                  const endDate = new Date(campaign.end_date)
-                  const daysLeft = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                  // Ensure we have valid campaign data
+                  if (!item?.campaign) {
+                    console.warn('Invalid campaign item:', item)
+                    return null
+                  }
                   
                   return (
                     <CampaignCard
                       key={item.id}
-                      title={campaign.name}
-                      brand={campaign.brand_name || "Unknown Brand"}
-                      image={campaign.thumbnail_url || '/placeholder.svg'}
-                      completedDeliverables={campaign.current_posts || 0}
-                      totalDeliverables={campaign.min_deliverables_per_creator || 1}
-                      currentGmv={campaign.current_gmv || 0}
-                      target={campaign.target_gmv || 10000}
-                      daysLeft={Math.max(0, daysLeft)}
-                      status={campaign.status as any}
-                      endDate={endDate}
-                      isUrgent={daysLeft <= 3 && daysLeft >= 0}
-                      onClick={() => handleViewCampaignDetails(item)}
+                      campaign={item.campaign}
+                      onViewDetails={handleViewCampaignDetails}
                     />
                   )
                 })}

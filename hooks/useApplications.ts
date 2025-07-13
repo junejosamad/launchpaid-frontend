@@ -1,6 +1,7 @@
 // hooks/useApplications.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { campaignServiceClient } from '@/lib/api/client'
+import { API_CONFIG } from '@/lib/api/config'
 
 // Types matching your backend schemas
 export interface Application {
@@ -336,4 +337,35 @@ export function useApplicationStats(campaignId?: string) {
     enabled: !!campaignId,
     staleTime: 30000,
   })
+}
+
+// Add this debug version to your useApplications.ts temporarily
+
+// Review application (approve/reject) - DEBUG VERSION
+reviewApplication: async (applicationId: string, reviewData: ReviewData): Promise<Application> => {
+  console.log('🔍 DEBUG: Starting review application', {
+    applicationId,
+    reviewData,
+    campaignServiceURL: API_CONFIG.SERVICES.CAMPAIGN_SERVICE
+  })
+
+  const endpoint = `/api/v1/applications/${applicationId}/review`
+  const fullUrl = `${API_CONFIG.SERVICES.CAMPAIGN_SERVICE}${endpoint}`
+  
+  console.log('🔍 DEBUG: Making request to:', fullUrl)
+  
+  const response = await campaignServiceClient.put<Application>(
+    endpoint, 
+    reviewData
+  )
+  
+  console.log('🔍 DEBUG: Response received:', response)
+  
+  if (response.success && response.data) {
+    console.log('✅ DEBUG: Review successful')
+    return response.data
+  }
+  
+  console.error('❌ DEBUG: Review failed:', response.error)
+  throw new Error(response.error || 'Failed to review application')
 }

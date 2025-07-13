@@ -36,6 +36,7 @@ import {
   Pause,
   Copy,
   ExternalLink,
+  Upload,
 } from "lucide-react"
 
 type CampaignStatus = "active" | "paused" | "completed" | "overdue"
@@ -230,12 +231,15 @@ export function CampaignDetailsModal({
         </DialogHeader>
 
         <Tabs defaultValue={defaultTab} className="mt-6">
-          <TabsList className="grid grid-cols-6 bg-gray-800 w-full">
+          <TabsList className="grid grid-cols-7 bg-gray-800 w-full">
             <TabsTrigger value="overview" className="data-[state=active]:bg-purple-600">
               Overview
             </TabsTrigger>
             <TabsTrigger value="creators" className="data-[state=active]:bg-purple-600">
               Creators
+            </TabsTrigger>
+            <TabsTrigger value="deliverables" className="data-[state=active]:bg-purple-600">
+              Deliverables
             </TabsTrigger>
             <TabsTrigger value="analytics" className="data-[state=active]:bg-purple-600">
               Analytics
@@ -329,7 +333,6 @@ export function CampaignDetailsModal({
                   <Progress
                     value={(campaign.posts.completed / campaign.posts.target) * 100}
                     className="h-4"
-                    indicatorClassName="bg-green-500"
                   />
                   <div className="flex justify-between text-xs text-gray-400">
                     <span>{campaign.posts.completed} posts completed</span>
@@ -495,15 +498,6 @@ export function CampaignDetailsModal({
                               <Progress
                                 value={(creator.posts.completed / creator.posts.target) * 100}
                                 className="h-2"
-                                indicatorClassName={
-                                  creator.status === "ahead"
-                                    ? "bg-green-500"
-                                    : creator.status === "on-track"
-                                      ? "bg-yellow-500"
-                                      : creator.status === "behind"
-                                        ? "bg-orange-500"
-                                        : "bg-red-500"
-                                }
                               />
                             </div>
                           </td>
@@ -537,6 +531,259 @@ export function CampaignDetailsModal({
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* DELIVERABLES TAB */}
+          <TabsContent value="deliverables" className="space-y-6 pt-6">
+            {/* Deliverables Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-6 text-center">
+                  <div className="h-8 w-8 mx-auto mb-2 bg-yellow-900/20 rounded-lg flex items-center justify-center">
+                    <Clock className="h-5 w-5 text-yellow-400" />
+                  </div>
+                  <p className="text-2xl font-bold">12</p>
+                  <p className="text-sm text-gray-400">Pending Review</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-6 text-center">
+                  <div className="h-8 w-8 mx-auto mb-2 bg-green-900/20 rounded-lg flex items-center justify-center">
+                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  </div>
+                  <p className="text-2xl font-bold">45</p>
+                  <p className="text-sm text-gray-400">Approved</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-6 text-center">
+                  <div className="h-8 w-8 mx-auto mb-2 bg-red-900/20 rounded-lg flex items-center justify-center">
+                    <XCircle className="h-5 w-5 text-red-400" />
+                  </div>
+                  <p className="text-2xl font-bold">3</p>
+                  <p className="text-sm text-gray-400">Rejected</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-6 text-center">
+                  <div className="h-8 w-8 mx-auto mb-2 bg-orange-900/20 rounded-lg flex items-center justify-center">
+                    <AlertTriangle className="h-5 w-5 text-orange-400" />
+                  </div>
+                  <p className="text-2xl font-bold">8</p>
+                  <p className="text-sm text-gray-400">Overdue</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Deliverables Management */}
+            <Card className="bg-gray-800 border-gray-700">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    Deliverables Management
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <Select defaultValue="all">
+                      <SelectTrigger className="w-40 bg-gray-750 border-gray-600">
+                        <SelectValue placeholder="Filter by status" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-gray-800 border-gray-700">
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="submitted">Submitted</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="overdue">Overdue</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Search deliverables..."
+                      className="w-64 bg-gray-750 border-gray-600"
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="border-b border-gray-700">
+                      <tr className="text-left">
+                        <th className="p-3 text-sm font-medium text-gray-400">Creator</th>
+                        <th className="p-3 text-sm font-medium text-gray-400">Deliverable</th>
+                        <th className="p-3 text-sm font-medium text-gray-400">Status</th>
+                        <th className="p-3 text-sm font-medium text-gray-400">Due Date</th>
+                        <th className="p-3 text-sm font-medium text-gray-400">Performance</th>
+                        <th className="p-3 text-sm font-medium text-gray-400">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Sample deliverables data - will be replaced with real data */}
+                      <tr className="border-b border-gray-700 hover:bg-gray-750">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src="/placeholder.svg" />
+                              <AvatarFallback>SJ</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">Sarah Johnson</p>
+                              <p className="text-sm text-gray-400">@sarahj_fit</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div>
+                            <p className="font-medium">Unboxing Video</p>
+                            <p className="text-sm text-gray-400">Deliverable #1</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <Badge variant="outline" className="text-yellow-400 border-yellow-400">
+                            Pending Review
+                          </Badge>
+                        </td>
+                        <td className="p-3 text-sm text-gray-400">2024-01-25</td>
+                        <td className="p-3">
+                          <div className="text-sm">
+                            <p>Views: 2.4K</p>
+                            <p>Likes: 156</p>
+                            <p>GMV: $125.50</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-green-400">
+                              <CheckCircle className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-400">
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr className="border-b border-gray-700 hover:bg-gray-750">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src="/placeholder.svg" />
+                              <AvatarFallback>MC</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">Mike Chen</p>
+                              <p className="text-sm text-gray-400">@mikec_lifestyle</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div>
+                            <p className="font-medium">Product Review</p>
+                            <p className="text-sm text-gray-400">Deliverable #2</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <Badge variant="outline" className="text-green-400 border-green-400">
+                            Approved
+                          </Badge>
+                        </td>
+                        <td className="p-3 text-sm text-gray-400">2024-01-23</td>
+                        <td className="p-3">
+                          <div className="text-sm">
+                            <p>Views: 1.8K</p>
+                            <p>Likes: 98</p>
+                            <p>GMV: $89.25</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                      <tr className="border-b border-gray-700 hover:bg-gray-750">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src="/placeholder.svg" />
+                              <AvatarFallback>ED</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">Emma Davis</p>
+                              <p className="text-sm text-gray-400">@emmad_beauty</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div>
+                            <p className="font-medium">Styling Tutorial</p>
+                            <p className="text-sm text-gray-400">Deliverable #3</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <Badge variant="outline" className="text-orange-400 border-orange-400">
+                            Overdue
+                          </Badge>
+                        </td>
+                        <td className="p-3 text-sm text-red-400">2024-01-20</td>
+                        <td className="p-3">
+                          <div className="text-sm text-gray-400">
+                            <p>Not submitted</p>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <Send className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Bulk Actions */}
+            <Card className="bg-gray-800 border-gray-700">
+              <CardHeader>
+                <CardTitle>Bulk Actions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-4">
+                  <Button variant="outline" className="border-gray-600">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve Selected
+                  </Button>
+                  <Button variant="outline" className="border-gray-600">
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject Selected
+                  </Button>
+                  <Button variant="outline" className="border-gray-600">
+                    <Send className="h-4 w-4 mr-2" />
+                    Send Reminders
+                  </Button>
+                  <Button variant="outline" className="border-gray-600">
+                    <Download className="h-4 w-4 mr-2" />
+                    Export Data
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -782,7 +1029,7 @@ export function CampaignDetailsModal({
                     <span className="text-gray-400">Remaining</span>
                     <span className="font-bold text-green-400">$1,573.20</span>
                   </div>
-                  <Progress value={21.34} className="h-3" indicatorClassName="bg-purple-500" />
+                  <Progress value={21.34} className="h-3" />
                   <p className="text-sm text-gray-400">21.34% of budget used</p>
                 </CardContent>
               </Card>
